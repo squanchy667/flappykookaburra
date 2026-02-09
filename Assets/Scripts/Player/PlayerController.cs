@@ -51,6 +51,9 @@ public class PlayerController : MonoBehaviour
         {
             _rb.velocity = new Vector2(_rb.velocity.x, _birdStats.maxUpwardVelocity);
         }
+
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayFlap();
     }
 
     private void UpdateRotation()
