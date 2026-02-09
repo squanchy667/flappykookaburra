@@ -56,14 +56,24 @@ public class ObstacleSpawner : MonoBehaviour
     {
         ObstaclePair pair = _pool.Get();
 
-        float minY = WorldBounds.ScreenBottom + 3f;
-        float maxY = WorldBounds.ScreenTop - 3f;
+        float padding = GetCurrentGapYPadding();
+        float minY = WorldBounds.ScreenBottom + padding;
+        float maxY = WorldBounds.ScreenTop - padding;
         float gapCenterY = Random.Range(minY, maxY);
         float gapSize = GetCurrentGapSize();
         float speed = GetCurrentScrollSpeed();
 
+        // Apply per-obstacle speed jitter
+        float variance = GetCurrentSpeedVariance();
+        if (variance > 0f)
+            speed *= 1f + Random.Range(-variance, variance);
+
+        // Get oscillation parameters
+        float oscAmplitude = GetCurrentOscillationAmplitude();
+        float oscFrequency = GetOscillationFrequency();
+
         pair.transform.position = new Vector3(WorldBounds.SpawnX, 0f, 0f);
-        pair.Setup(gapCenterY, gapSize, speed);
+        pair.Setup(gapCenterY, gapSize, speed, oscAmplitude, oscFrequency);
 
         _activeObstacles.Add(pair);
     }
@@ -87,6 +97,34 @@ public class ObstacleSpawner : MonoBehaviour
         if (DifficultyManager.Instance != null)
             return DifficultyManager.Instance.CurrentSpawnInterval;
         return _difficultyConfig.spawnInterval;
+    }
+
+    private float GetCurrentGapYPadding()
+    {
+        if (DifficultyManager.Instance != null)
+            return DifficultyManager.Instance.CurrentGapYPadding;
+        return _difficultyConfig.initialGapYPadding;
+    }
+
+    private float GetCurrentSpeedVariance()
+    {
+        if (DifficultyManager.Instance != null)
+            return DifficultyManager.Instance.CurrentSpeedVariance;
+        return 0f;
+    }
+
+    private float GetCurrentOscillationAmplitude()
+    {
+        if (DifficultyManager.Instance != null)
+            return DifficultyManager.Instance.CurrentOscillationAmplitude;
+        return 0f;
+    }
+
+    private float GetOscillationFrequency()
+    {
+        if (DifficultyManager.Instance != null)
+            return DifficultyManager.Instance.OscillationFrequency;
+        return _difficultyConfig.oscillationFrequency;
     }
 
     private void ReturnOffScreenObstacles()

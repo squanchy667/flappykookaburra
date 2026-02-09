@@ -86,6 +86,7 @@ public static class GameSetup
         EnsureFolder("Assets/Sprites/Kookaburra");
         EnsureFolder("Assets/Sprites/Background");
         EnsureFolder("Assets/Sprites/Obstacles");
+        EnsureFolder("Assets/Sprites/Ground");
         EnsureFolder("Assets/Audio");
         EnsureFolder("Assets/Animations");
         EnsureFolder("Assets/UI");
@@ -118,14 +119,26 @@ public static class GameSetup
 
         var so = ScriptableObject.CreateInstance<DifficultyConfig>();
         so.initialGapSize = 4f;
-        so.minimumGapSize = 2.5f;
-        so.gapSizeCurve = AnimationCurve.Linear(0f, 0f, 50f, 1f);
+        so.minimumGapSize = 2.0f;
+        // S-curve: gentle 0-15, steep ramp 15-80, gradual plateau 80-200
+        so.gapSizeCurve = CreateSCurve();
         so.initialScrollSpeed = 3f;
-        so.maximumScrollSpeed = 6f;
-        so.scrollSpeedCurve = AnimationCurve.Linear(0f, 0f, 50f, 1f);
+        so.maximumScrollSpeed = 8f;
+        so.scrollSpeedCurve = CreateSCurve();
         so.spawnInterval = 1.5f;
-        so.minimumSpawnInterval = 0.8f;
-        so.spawnIntervalCurve = AnimationCurve.Linear(0f, 0f, 50f, 1f);
+        so.minimumSpawnInterval = 0.6f;
+        so.spawnIntervalCurve = CreateSCurve();
+        // Gap Y-variance: padding shrinks from 3 → 1.5 at high scores
+        so.initialGapYPadding = 3f;
+        so.minimumGapYPadding = 1.5f;
+        so.gapYVarianceCurve = CreateSCurve();
+        // Speed variance: up to ±15% at high scores
+        so.maxSpeedVariance = 0.15f;
+        so.speedVarianceCurve = CreateSCurve();
+        // Oscillation: kicks in around score 60, ramps to max by 150
+        so.maxOscillationAmplitude = 1.2f;
+        so.oscillationFrequency = 1.0f;
+        so.oscillationAmplitudeCurve = CreateOscillationCurve();
         AssetDatabase.CreateAsset(so, path);
         Debug.Log("[GameSetup] Created DifficultyConfig");
         return so;
@@ -147,7 +160,7 @@ public static class GameSetup
 
     // ─── Sprites ─────────────────────────────────────────────────
 
-    private static Sprite LoadOrCreateSprite(string name, Color fallbackColor, int fallbackWidth, int fallbackHeight, int pixelsPerUnit = 64)
+    private static Sprite LoadOrCreateSprite(string name, Color fallbackColor, int fallbackWidth, int fallbackHeight, int pixelsPerUnit = 64, bool alphaIsTransparency = false)
     {
         string path = $"Assets/Sprites/{name}.png";
         var existing = AssetDatabase.LoadAssetAtPath<Sprite>(path);
@@ -173,6 +186,7 @@ public static class GameSetup
             importer.textureType = TextureImporterType.Sprite;
             importer.spritePixelsPerUnit = pixelsPerUnit;
             importer.filterMode = FilterMode.Point;
+            importer.alphaIsTransparency = alphaIsTransparency;
             importer.SaveAndReimport();
         }
 
@@ -187,7 +201,9 @@ public static class GameSetup
         var existing = AssetDatabase.LoadAssetAtPath<ObstaclePair>(path);
         if (existing != null) return existing;
 
-        var pipeSprite = LoadOrCreateSprite("Obstacles/pipe", new Color(0.2f, 0.7f, 0.2f), 32, 256, pixelsPerUnit: 64);
+        // AI Art Prompt: Pixel art eucalyptus tree trunk log, vertical orientation. Brown bark texture
+        // with subtle green moss/leaf accents. Clean edges, no top cap. Transparent background (PNG). 128×512px.
+        var pipeSprite = LoadOrCreateSprite("Obstacles/pipe", new Color(0.2f, 0.7f, 0.2f), 32, 256, pixelsPerUnit: 64, alphaIsTransparency: true);
 
         // Calculate scale dynamically so pipe covers _pipeHeight (20 units) regardless of sprite size
         float spriteHeight = pipeSprite.bounds.size.y;
@@ -324,7 +340,10 @@ public static class GameSetup
         var existing = AssetDatabase.LoadAssetAtPath<GameObject>(path);
         if (existing != null) return existing;
 
-        var birdSprite = LoadOrCreateSprite("Kookaburra/kookaburra", new Color(0.6f, 0.4f, 0.2f), 32, 32, pixelsPerUnit: 960);
+        // AI Art Prompt: Pixel art kookaburra bird, side profile facing right, wings slightly raised in
+        // mid-flight. Brown/tan body, cream-white chest, dark beak, bright eye. Black outline.
+        // Transparent background (PNG). 512×512px.
+        var birdSprite = LoadOrCreateSprite("Kookaburra/kookaburra", new Color(0.6f, 0.4f, 0.2f), 32, 32, pixelsPerUnit: 960, alphaIsTransparency: true);
 
         var go = new GameObject("Kookaburra");
         go.tag = "Player";
@@ -523,6 +542,14 @@ public static class GameSetup
         CreateParallaxLayer("BackgroundFar", 0.3f, new Color(0.6f, 0.85f, 0.95f), -2);
         CreateParallaxLayer("BackgroundNear", 0.6f, new Color(0.4f, 0.75f, 0.4f), -1);
 
+        // ── Ground Layer ──
+        // AI Art Prompt: Pixel art Australian ground strip. Red-brown dirt with tufts of dry grass on
+        // top edge. Bottom solid. Transparent above grass line. Tileable horizontally. 1024×256px.
+        CreateGroundLayer();
+
+        // ── Difficulty Visual Feedback ──
+        SetupDifficultyVisualFeedback(cam);
+
         // ── UI ──
         SetupUI();
 
@@ -559,7 +586,13 @@ public static class GameSetup
     {
         if (GameObject.Find(name) != null) return;
 
-        var bgSprite = LoadOrCreateSprite($"Background/{name.ToLower()}", color, 128, 128, pixelsPerUnit: 64);
+        // AI Art Prompts:
+        // Far: Pixel art Australian outback panorama. Warm gradient sky, distant mountain silhouettes.
+        //   Red-orange desert floor. NOT transparent. Tileable horizontally. 1024×1024px.
+        // Near: Pixel art eucalyptus tree canopy silhouettes. Dark green/olive. Lower portion transparent.
+        //   Tileable horizontally. 1024×512px.
+        bool isNear = name.Contains("Near");
+        var bgSprite = LoadOrCreateSprite($"Background/{name.ToLower()}", color, 128, 128, pixelsPerUnit: 64, alphaIsTransparency: isNear);
 
         var go = new GameObject(name);
         var layer = go.AddComponent<ParallaxLayer>();
@@ -597,6 +630,146 @@ public static class GameSetup
         Debug.Log($"[GameSetup] Created parallax layer: {name}");
     }
 
+    private static void CreateGroundLayer()
+    {
+        if (GameObject.Find("Ground Layer") != null) return;
+
+        var groundSprite = LoadOrCreateSprite("Ground/ground", new Color(0.55f, 0.3f, 0.15f), 128, 32, pixelsPerUnit: 64, alphaIsTransparency: true);
+
+        var go = new GameObject("Ground Layer");
+        go.transform.position = new Vector3(0f, -4.5f, 0f);
+        var layer = go.AddComponent<ParallaxLayer>();
+
+        // Sprite A
+        var sprA = new GameObject("SpriteA");
+        sprA.transform.SetParent(go.transform);
+        sprA.transform.localPosition = Vector3.zero;
+        var srA = sprA.AddComponent<SpriteRenderer>();
+        srA.sprite = groundSprite;
+        srA.sortingLayerName = "Ground";
+        srA.sortingOrder = 0;
+        srA.drawMode = SpriteDrawMode.Tiled;
+        srA.size = new Vector2(20f, 2f);
+
+        // Sprite B
+        var sprB = new GameObject("SpriteB");
+        sprB.transform.SetParent(go.transform);
+        sprB.transform.localPosition = new Vector3(20f, 0, 0);
+        var srB = sprB.AddComponent<SpriteRenderer>();
+        srB.sprite = groundSprite;
+        srB.sortingLayerName = "Ground";
+        srB.sortingOrder = 0;
+        srB.drawMode = SpriteDrawMode.Tiled;
+        srB.size = new Vector2(20f, 2f);
+
+        // Wire — ground scrolls at full speed (1.0 multiplier)
+        var so = new SerializedObject(layer);
+        so.FindProperty("_scrollSpeedMultiplier").floatValue = 1f;
+        so.FindProperty("_spriteA").objectReferenceValue = srA;
+        so.FindProperty("_spriteB").objectReferenceValue = srB;
+        so.FindProperty("_baseSpeed").floatValue = 3f;
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        Debug.Log("[GameSetup] Created ground layer at y=-4.5");
+    }
+
+    private static void SetupDifficultyVisualFeedback(Camera cam)
+    {
+        if (Object.FindFirstObjectByType<DifficultyVisualFeedback>() != null) return;
+        if (cam == null) return;
+
+        var go = new GameObject("DifficultyVisualFeedback");
+        var feedback = go.AddComponent<DifficultyVisualFeedback>();
+
+        // Create sky gradient: sky blue → warm orange → deep red-purple
+        var gradient = new Gradient();
+        gradient.SetKeys(
+            new GradientColorKey[] {
+                new GradientColorKey(new Color(0.53f, 0.81f, 0.92f), 0f),    // sky blue
+                new GradientColorKey(new Color(0.95f, 0.65f, 0.25f), 0.5f),  // warm orange
+                new GradientColorKey(new Color(0.45f, 0.15f, 0.35f), 1f)     // deep red-purple
+            },
+            new GradientAlphaKey[] {
+                new GradientAlphaKey(1f, 0f),
+                new GradientAlphaKey(1f, 1f)
+            }
+        );
+
+        // Create speed line particle system
+        var speedLineGO = new GameObject("SpeedLines");
+        speedLineGO.transform.SetParent(cam.transform);
+        speedLineGO.transform.localPosition = new Vector3(2f, 0f, 5f);
+        var speedLinePS = speedLineGO.AddComponent<ParticleSystem>();
+
+        var main = speedLinePS.main;
+        main.duration = 1f;
+        main.startLifetime = 0.3f;
+        main.startSpeed = 15f;
+        main.startSize = new ParticleSystem.MinMaxCurve(0.02f, 0.05f);
+        main.startColor = new Color(1f, 1f, 1f, 0.4f);
+        main.maxParticles = 50;
+        main.loop = true;
+        main.playOnAwake = false;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+
+        var emission = speedLinePS.emission;
+        emission.rateOverTime = 30f;
+
+        var shape = speedLinePS.shape;
+        shape.shapeType = ParticleSystemShapeType.Box;
+        shape.scale = new Vector3(0.1f, 10f, 1f);
+        shape.rotation = new Vector3(0f, 0f, 90f);
+
+        var renderer = speedLineGO.GetComponent<ParticleSystemRenderer>();
+        renderer.sortingLayerName = "UI";
+        renderer.sortingOrder = -1;
+
+        // Collect parallax SpriteRenderers
+        var renderers = new System.Collections.Generic.List<SpriteRenderer>();
+        foreach (var layerName in new[] { "BackgroundFar", "BackgroundNear", "Ground Layer" })
+        {
+            var layerGO = GameObject.Find(layerName);
+            if (layerGO != null)
+                renderers.AddRange(layerGO.GetComponentsInChildren<SpriteRenderer>());
+        }
+
+        // Wire fields
+        var so = new SerializedObject(feedback);
+        so.FindProperty("_mainCamera").objectReferenceValue = cam;
+        so.FindProperty("_speedLines").objectReferenceValue = speedLinePS;
+        so.FindProperty("_speedLineThreshold").floatValue = 5f;
+        so.FindProperty("_maxDifficultyScore").floatValue = 200f;
+
+        // Wire gradient
+        var gradProp = so.FindProperty("_skyGradient");
+        if (gradProp != null)
+        {
+            // Gradient can't easily be serialized via SerializedProperty in a simple way.
+            // Instead, we set it after applying other fields.
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+        else
+        {
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        // Wire parallax renderers array
+        var arrayProp = so.FindProperty("_parallaxRenderers");
+        arrayProp.arraySize = renderers.Count;
+        for (int i = 0; i < renderers.Count; i++)
+            arrayProp.GetArrayElementAtIndex(i).objectReferenceValue = renderers[i];
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        // Set gradient via reflection since SerializedProperty gradient handling is complex in editor scripts
+        var field = typeof(DifficultyVisualFeedback).GetField("_skyGradient",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (field != null)
+            field.SetValue(feedback, gradient);
+
+        EditorUtility.SetDirty(feedback);
+        Debug.Log("[GameSetup] Created DifficultyVisualFeedback with sky gradient and speed lines");
+    }
+
     private static void CreateBoundary(string name, Vector3 position)
     {
         if (GameObject.Find(name) != null) return;
@@ -623,22 +796,26 @@ public static class GameSetup
         scaler.matchWidthOrHeight = 0.5f;
         canvasGO.AddComponent<GraphicRaycaster>();
 
+        // ── Safe Area ──
+        var safeAreaGO = CreatePanel(canvasGO.transform, "SafeArea");
+        safeAreaGO.AddComponent<SafeAreaHandler>();
+
         // ── Main Menu Panel ──
-        var menuPanel = CreatePanel(canvasGO.transform, "MainMenuPanel");
+        var menuPanel = CreatePanel(safeAreaGO.transform, "MainMenuPanel");
         var titleText = CreateTMPText(menuPanel.transform, "TitleText", "FlappyKookaburra", 72);
         SetRectTransform(titleText, new Vector2(0.5f, 0.7f), new Vector2(0.5f, 0.7f), Vector2.zero, new Vector2(800, 100));
         var startBtn = CreateButton(menuPanel.transform, "StartButton", "TAP TO START");
         SetRectTransform(startBtn, new Vector2(0.5f, 0.4f), new Vector2(0.5f, 0.4f), Vector2.zero, new Vector2(400, 80));
 
         // ── HUD Panel ──
-        var hudPanel = CreatePanel(canvasGO.transform, "HUDPanel");
+        var hudPanel = CreatePanel(safeAreaGO.transform, "HUDPanel");
         hudPanel.SetActive(false);
         var scoreText = CreateTMPText(hudPanel.transform, "ScoreText", "0", 96);
         SetRectTransform(scoreText, new Vector2(0.5f, 0.85f), new Vector2(0.5f, 0.85f), Vector2.zero, new Vector2(400, 120));
         var punchEffect = scoreText.AddComponent<ScorePunchEffect>();
 
         // ── Game Over Panel ──
-        var gameOverPanel = CreatePanel(canvasGO.transform, "GameOverPanel");
+        var gameOverPanel = CreatePanel(safeAreaGO.transform, "GameOverPanel");
         gameOverPanel.SetActive(false);
         var canvasGroup = gameOverPanel.AddComponent<CanvasGroup>();
         canvasGroup.alpha = 0f;
@@ -744,6 +921,39 @@ public static class GameSetup
         rt.pivot = new Vector2(0.5f, 0.5f);
         rt.sizeDelta = sizeDelta;
         rt.anchoredPosition = Vector2.zero;
+    }
+
+    // ─── Difficulty Curves ─────────────────────────────────────────
+
+    /// <summary>
+    /// S-curve spanning score 0–200: gentle start (0–15), steep ramp (15–80), gradual plateau (80–200).
+    /// Output ranges 0→1.
+    /// </summary>
+    private static AnimationCurve CreateSCurve()
+    {
+        return new AnimationCurve(
+            new Keyframe(0f,   0f,   0f,    0f),      // flat start
+            new Keyframe(15f,  0.05f, 0.003f, 0.015f), // gentle up to score 15
+            new Keyframe(50f,  0.5f,  0.012f, 0.012f), // midpoint — steep ramp through here
+            new Keyframe(80f,  0.8f,  0.008f, 0.004f), // starting to plateau
+            new Keyframe(120f, 0.92f, 0.002f, 0.001f), // gradual approach
+            new Keyframe(200f, 1f,    0.001f, 0f)       // fully maxed
+        );
+    }
+
+    /// <summary>
+    /// Oscillation curve: flat zero until score 60, then ramps to 1.0 by score 150.
+    /// Pipes don't move at all until the player reaches a decent score.
+    /// </summary>
+    private static AnimationCurve CreateOscillationCurve()
+    {
+        return new AnimationCurve(
+            new Keyframe(0f,   0f,  0f,    0f),       // no oscillation
+            new Keyframe(60f,  0f,  0f,    0.005f),   // still zero at 60, starts ramping
+            new Keyframe(100f, 0.5f, 0.012f, 0.012f), // halfway
+            new Keyframe(150f, 0.9f, 0.005f, 0.002f), // nearly maxed
+            new Keyframe(200f, 1f,   0.001f, 0f)       // fully maxed
+        );
     }
 
     // ─── Utility ──────────────────────────────────────────────────

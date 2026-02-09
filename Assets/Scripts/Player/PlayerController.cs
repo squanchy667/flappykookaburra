@@ -39,7 +39,18 @@ public class PlayerController : MonoBehaviour
     {
         if (!_inputEnabled || !_isAlive) return;
 
-        if (Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.Space))
+        bool tapped = false;
+        if (Input.touchCount > 0)
+        {
+            var touch = Input.GetTouch(0);
+            tapped = touch.phase == TouchPhase.Began && touch.fingerId == 0;
+        }
+        else
+        {
+            tapped = Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.Space);
+        }
+
+        if (tapped)
         {
             Flap();
         }

@@ -19,7 +19,7 @@ Flappy Bird-style 2D game featuring a kookaburra navigating through eucalyptus t
 flappykookaburra/
 ├── Assets/
 │   ├── Scripts/
-│   │   ├── Systems/       # GameManager, ScoreManager, DifficultyManager, AudioManager, ParallaxLayer
+│   │   ├── Systems/       # GameManager, ScoreManager, DifficultyManager, AudioManager, ParallaxLayer, ParticleSpawner, FrameRateManager, SafeAreaHandler, DifficultyVisualFeedback
 │   │   ├── Player/        # PlayerController
 │   │   ├── Obstacles/     # ObstacleSpawner, ObstaclePair, Obstacle, ScoreZone
 │   │   ├── UI/            # UIManager, ScorePunchEffect
@@ -31,7 +31,7 @@ flappykookaburra/
 │   │   └── Audio/         # DefaultAudioConfig.asset
 │   ├── Prefabs/           # Kookaburra, ObstaclePair, ScoreParticle, DeathParticle
 │   ├── Scenes/            # MainScene.unity
-│   ├── Sprites/           # Kookaburra/, Background/, Obstacles/
+│   ├── Sprites/           # Kookaburra/, Background/, Obstacles/, Ground/
 │   ├── Audio/             # flap.wav, kookaburra-laugh.wav, collision.wav, ambient.wav
 │   ├── Animations/        # KookaburraAnimator.controller, clips
 │   ├── UI/                # Fonts, UI sprites
@@ -110,6 +110,11 @@ Background → Ground → Obstacles → Player → UI
 Unity Editor: Ctrl+P (Play), Ctrl+Shift+B (Build Settings), Ctrl+S (Save)
 Test Runner: Window → General → Test Runner → Run All
 WebGL Build: File → Build Settings → WebGL → Build
+Tools > Game > Setup Game: Full scene setup (managers, UI, prefabs, parallax, ground, visual feedback)
+Tools > Game > Regenerate Prefabs: Delete and recreate all prefabs + re-wire scene
+Tools > Build > iOS: Build for iOS (portrait locked, safe area)
+Tools > Build > Android: Build for Android (portrait locked, safe area)
+Tools > Build > Configure Mobile Settings: Apply portrait lock + hide status bar
 ```
 
 ## Commit Convention
