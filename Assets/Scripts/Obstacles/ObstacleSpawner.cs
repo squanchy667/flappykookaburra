@@ -6,6 +6,7 @@ public class ObstacleSpawner : MonoBehaviour
     [SerializeField] private DifficultyConfig _difficultyConfig;
     [SerializeField] private ObstaclePair _obstaclePairPrefab;
     [SerializeField] private int _poolSize = 5;
+    [SerializeField] private float _gracePeriod = 2f;
 
     private ObjectPool<ObstaclePair> _pool;
     private float _spawnTimer;
@@ -108,7 +109,7 @@ public class ObstacleSpawner : MonoBehaviour
         {
             case GameState.Playing:
                 _spawning = true;
-                _spawnTimer = GetCurrentSpawnInterval();
+                _spawnTimer = _gracePeriod;
                 break;
             case GameState.GameOver:
                 _spawning = false;
