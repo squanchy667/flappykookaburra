@@ -15,6 +15,13 @@ public class ObstacleSpawner : MonoBehaviour
 
     private void Awake()
     {
+        if (_obstaclePairPrefab == null)
+        {
+            Debug.LogError("[ObstacleSpawner] _obstaclePairPrefab is null! Run Tools > Game > Regenerate Prefabs to fix.");
+            enabled = false;
+            return;
+        }
+
         Transform poolParent = new GameObject("ObstaclePool").transform;
         poolParent.SetParent(transform);
         _pool = new ObjectPool<ObstaclePair>(_obstaclePairPrefab, poolParent);
