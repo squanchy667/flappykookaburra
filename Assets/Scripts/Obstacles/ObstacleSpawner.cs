@@ -38,7 +38,7 @@ public class ObstacleSpawner : MonoBehaviour
         if (_spawnTimer <= 0f)
         {
             SpawnObstacle();
-            _spawnTimer = _difficultyConfig.spawnInterval;
+            _spawnTimer = GetCurrentSpawnInterval();
         }
 
         ReturnOffScreenObstacles();
@@ -51,13 +51,34 @@ public class ObstacleSpawner : MonoBehaviour
         float minY = WorldBounds.ScreenBottom + 3f;
         float maxY = WorldBounds.ScreenTop - 3f;
         float gapCenterY = Random.Range(minY, maxY);
-        float gapSize = _difficultyConfig.initialGapSize;
-        float speed = _difficultyConfig.initialScrollSpeed;
+        float gapSize = GetCurrentGapSize();
+        float speed = GetCurrentScrollSpeed();
 
         pair.transform.position = new Vector3(WorldBounds.SpawnX, 0f, 0f);
         pair.Setup(gapCenterY, gapSize, speed);
 
         _activeObstacles.Add(pair);
+    }
+
+    private float GetCurrentGapSize()
+    {
+        if (DifficultyManager.Instance != null)
+            return DifficultyManager.Instance.CurrentGapSize;
+        return _difficultyConfig.initialGapSize;
+    }
+
+    private float GetCurrentScrollSpeed()
+    {
+        if (DifficultyManager.Instance != null)
+            return DifficultyManager.Instance.CurrentScrollSpeed;
+        return _difficultyConfig.initialScrollSpeed;
+    }
+
+    private float GetCurrentSpawnInterval()
+    {
+        if (DifficultyManager.Instance != null)
+            return DifficultyManager.Instance.CurrentSpawnInterval;
+        return _difficultyConfig.spawnInterval;
     }
 
     private void ReturnOffScreenObstacles()
@@ -87,7 +108,7 @@ public class ObstacleSpawner : MonoBehaviour
         {
             case GameState.Playing:
                 _spawning = true;
-                _spawnTimer = _difficultyConfig.spawnInterval;
+                _spawnTimer = GetCurrentSpawnInterval();
                 break;
             case GameState.GameOver:
                 _spawning = false;
