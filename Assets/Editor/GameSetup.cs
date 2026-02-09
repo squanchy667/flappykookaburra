@@ -14,7 +14,6 @@ public static class GameSetup
             "Yes", "Cancel"))
             return;
 
-        // Delete existing prefabs so they get recreated with correct settings
         string[] assetPaths = {
             "Assets/Prefabs/ObstaclePair.prefab",
             "Assets/Prefabs/Kookaburra.prefab",
@@ -22,7 +21,10 @@ public static class GameSetup
             "Assets/Prefabs/DeathParticle.prefab",
             "Assets/Animations/KookaburraAnimator.controller",
             "Assets/Animations/Idle.anim",
-            "Assets/Animations/Flap.anim"
+            "Assets/Animations/Flap.anim",
+            "Assets/Animations/Glide.anim",
+            "Assets/Animations/Die.anim",
+            "Assets/Animations/Blink.anim"
         };
         foreach (var path in assetPaths)
         {
@@ -33,7 +35,6 @@ public static class GameSetup
             }
         }
 
-        // Also destroy the scene Kookaburra instance so it gets re-instantiated from new prefab
         var scenePlayer = GameObject.Find("Kookaburra");
         if (scenePlayer != null)
         {
@@ -42,8 +43,6 @@ public static class GameSetup
         }
 
         AssetDatabase.Refresh();
-
-        // Run setup directly (no second dialog)
         SetupGameCore();
     }
 
@@ -81,15 +80,18 @@ public static class GameSetup
         EnsureFolder("Assets/Data/Bird");
         EnsureFolder("Assets/Data/Difficulty");
         EnsureFolder("Assets/Data/Audio");
+        EnsureFolder("Assets/Data/UI");
         EnsureFolder("Assets/Prefabs");
         EnsureFolder("Assets/Sprites");
         EnsureFolder("Assets/Sprites/Kookaburra");
         EnsureFolder("Assets/Sprites/Background");
         EnsureFolder("Assets/Sprites/Obstacles");
         EnsureFolder("Assets/Sprites/Ground");
+        EnsureFolder("Assets/Sprites/UI");
         EnsureFolder("Assets/Audio");
         EnsureFolder("Assets/Animations");
         EnsureFolder("Assets/UI");
+        EnsureFolder("Assets/UI/Fonts");
     }
 
     // ─── ScriptableObjects ────────────────────────────────────────
@@ -120,7 +122,6 @@ public static class GameSetup
         var so = ScriptableObject.CreateInstance<DifficultyConfig>();
         so.initialGapSize = 4f;
         so.minimumGapSize = 2.0f;
-        // S-curve: gentle 0-15, steep ramp 15-80, gradual plateau 80-200
         so.gapSizeCurve = CreateSCurve();
         so.initialScrollSpeed = 3f;
         so.maximumScrollSpeed = 8f;
@@ -128,14 +129,11 @@ public static class GameSetup
         so.spawnInterval = 1.5f;
         so.minimumSpawnInterval = 0.6f;
         so.spawnIntervalCurve = CreateSCurve();
-        // Gap Y-variance: padding shrinks from 3 → 1.5 at high scores
         so.initialGapYPadding = 3f;
         so.minimumGapYPadding = 1.5f;
         so.gapYVarianceCurve = CreateSCurve();
-        // Speed variance: up to ±15% at high scores
         so.maxSpeedVariance = 0.15f;
         so.speedVarianceCurve = CreateSCurve();
-        // Oscillation: kicks in around score 60, ramps to max by 150
         so.maxOscillationAmplitude = 1.2f;
         so.oscillationFrequency = 1.0f;
         so.oscillationAmplitudeCurve = CreateOscillationCurve();
@@ -167,7 +165,6 @@ public static class GameSetup
 
         if (existing == null)
         {
-            // No image found — create a solid-color placeholder
             var tex = new Texture2D(fallbackWidth, fallbackHeight);
             var pixels = new Color[fallbackWidth * fallbackHeight];
             for (int i = 0; i < pixels.Length; i++) pixels[i] = fallbackColor;
@@ -179,7 +176,6 @@ public static class GameSetup
             AssetDatabase.ImportAsset(path);
         }
 
-        // Always ensure correct import settings
         var importer = (TextureImporter)AssetImporter.GetAtPath(path);
         if (importer != null)
         {
@@ -187,6 +183,43 @@ public static class GameSetup
             importer.spritePixelsPerUnit = pixelsPerUnit;
             importer.filterMode = FilterMode.Point;
             importer.alphaIsTransparency = alphaIsTransparency;
+            importer.SaveAndReimport();
+        }
+
+        return AssetDatabase.LoadAssetAtPath<Sprite>(path);
+    }
+
+    private static Sprite LoadOrCreateSpriteWithPivot(string name, Color fallbackColor, int fallbackWidth, int fallbackHeight, int pixelsPerUnit, Vector2 pivot)
+    {
+        string path = $"Assets/Sprites/{name}.png";
+        var existing = AssetDatabase.LoadAssetAtPath<Sprite>(path);
+
+        if (existing == null)
+        {
+            var tex = new Texture2D(fallbackWidth, fallbackHeight);
+            var pixels = new Color[fallbackWidth * fallbackHeight];
+            for (int i = 0; i < pixels.Length; i++) pixels[i] = fallbackColor;
+            tex.SetPixels(pixels);
+            tex.Apply();
+
+            System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(path);
+        }
+
+        var importer = (TextureImporter)AssetImporter.GetAtPath(path);
+        if (importer != null)
+        {
+            importer.textureType = TextureImporterType.Sprite;
+            importer.spritePixelsPerUnit = pixelsPerUnit;
+            importer.filterMode = FilterMode.Point;
+            importer.alphaIsTransparency = true;
+
+            var settings = new TextureImporterSettings();
+            importer.ReadTextureSettings(settings);
+            settings.spriteAlignment = (int)SpriteAlignment.Custom;
+            importer.SetTextureSettings(settings);
+            importer.spritePivot = pivot;
             importer.SaveAndReimport();
         }
 
@@ -201,45 +234,86 @@ public static class GameSetup
         var existing = AssetDatabase.LoadAssetAtPath<ObstaclePair>(path);
         if (existing != null) return existing;
 
-        // AI Art Prompt: Pixel art eucalyptus tree trunk log, vertical orientation. Brown bark texture
-        // with subtle green moss/leaf accents. Clean edges, no top cap. Transparent background (PNG). 128×512px.
-        var pipeSprite = LoadOrCreateSprite("Obstacles/pipe", new Color(0.2f, 0.7f, 0.2f), 32, 256, pixelsPerUnit: 64, alphaIsTransparency: true);
+        // Trunk segment — tileable brown bark texture
+        // AI Art Prompt: Pixel art eucalyptus bark segment, tileable vertically. Brown/grey bark texture.
+        // Transparent sides. 64×64px.
+        var trunkSprite = LoadOrCreateSprite("Obstacles/trunk-segment", new Color(0.35f, 0.25f, 0.15f), 64, 64, pixelsPerUnit: 64, alphaIsTransparency: true);
 
-        // Calculate scale dynamically so pipe covers _pipeHeight (20 units) regardless of sprite size
-        float spriteHeight = pipeSprite.bounds.size.y;
-        float spriteWidth = pipeSprite.bounds.size.x;
+        // Leaf cap top — green leafy cap for top of pipe
+        // AI Art Prompt: Pixel art eucalyptus leaf cluster cap, facing downward. Green leaves with brown branch.
+        // Transparent background. 128×64px.
+        var capTopSprite = LoadOrCreateSprite("Obstacles/trunk-cap-top", new Color(0.2f, 0.55f, 0.2f), 128, 64, pixelsPerUnit: 64, alphaIsTransparency: true);
+
+        // Root cap bottom — brown root cap for bottom of pipe
+        // AI Art Prompt: Pixel art tree root/base cap, facing upward. Brown roots spreading.
+        // Transparent background. 128×64px.
+        var capBottomSprite = LoadOrCreateSprite("Obstacles/trunk-cap-bottom", new Color(0.4f, 0.3f, 0.15f), 128, 64, pixelsPerUnit: 64, alphaIsTransparency: true);
+
         const float targetPipeHeight = 20f;
         const float targetPipeWidth = 1.5f;
-        float scaleY = targetPipeHeight / spriteHeight;
-        float scaleX = targetPipeWidth / spriteWidth;
 
         // Root
         var root = new GameObject("ObstaclePair");
         var obstacle = root.AddComponent<Obstacle>();
         var pair = root.AddComponent<ObstaclePair>();
 
-        // Top pipe — scaled to match _pipeHeight
+        // ── Top pipe (trunk + cap at bottom edge facing gap) ──
         var top = new GameObject("TopPipe");
         top.transform.SetParent(root.transform);
         top.transform.localPosition = new Vector3(0, 5f, 0);
-        top.transform.localScale = new Vector3(scaleX, scaleY, 1f);
-        var topSr = top.AddComponent<SpriteRenderer>();
-        topSr.sprite = pipeSprite;
-        topSr.flipY = true;
-        topSr.sortingLayerName = "Obstacles";
-        var topCol = top.AddComponent<BoxCollider2D>();
 
-        // Bottom pipe — same scale as top
+        // Trunk (tiled)
+        var topTrunk = new GameObject("Trunk");
+        topTrunk.transform.SetParent(top.transform);
+        topTrunk.transform.localPosition = Vector3.zero;
+        var topTrunkSr = topTrunk.AddComponent<SpriteRenderer>();
+        topTrunkSr.sprite = trunkSprite;
+        topTrunkSr.drawMode = SpriteDrawMode.Tiled;
+        topTrunkSr.size = new Vector2(targetPipeWidth, targetPipeHeight);
+        topTrunkSr.sortingLayerName = "Obstacles";
+        topTrunkSr.sortingOrder = 0;
+
+        // Cap (at the gap edge)
+        var topCap = new GameObject("Cap");
+        topCap.transform.SetParent(top.transform);
+        topCap.transform.localPosition = new Vector3(0, -targetPipeHeight / 2f, 0);
+        var topCapSr = topCap.AddComponent<SpriteRenderer>();
+        topCapSr.sprite = capTopSprite;
+        topCapSr.sortingLayerName = "Obstacles";
+        topCapSr.sortingOrder = 1;
+
+        var topCol = top.AddComponent<BoxCollider2D>();
+        topCol.size = new Vector2(targetPipeWidth, targetPipeHeight);
+
+        // ── Bottom pipe (trunk + cap at top edge facing gap) ──
         var bottom = new GameObject("BottomPipe");
         bottom.transform.SetParent(root.transform);
         bottom.transform.localPosition = new Vector3(0, -5f, 0);
-        bottom.transform.localScale = new Vector3(scaleX, scaleY, 1f);
-        var bottomSr = bottom.AddComponent<SpriteRenderer>();
-        bottomSr.sprite = pipeSprite;
-        bottomSr.sortingLayerName = "Obstacles";
-        var bottomCol = bottom.AddComponent<BoxCollider2D>();
 
-        Debug.Log($"[GameSetup] Pipe sprite: {spriteWidth}x{spriteHeight} world units → scale ({scaleX:F2}, {scaleY:F2})");
+        // Trunk (tiled)
+        var bottomTrunk = new GameObject("Trunk");
+        bottomTrunk.transform.SetParent(bottom.transform);
+        bottomTrunk.transform.localPosition = Vector3.zero;
+        var bottomTrunkSr = bottomTrunk.AddComponent<SpriteRenderer>();
+        bottomTrunkSr.sprite = trunkSprite;
+        bottomTrunkSr.drawMode = SpriteDrawMode.Tiled;
+        bottomTrunkSr.size = new Vector2(targetPipeWidth, targetPipeHeight);
+        bottomTrunkSr.sortingLayerName = "Obstacles";
+        bottomTrunkSr.sortingOrder = 0;
+
+        // Cap (at the gap edge)
+        var bottomCap = new GameObject("Cap");
+        bottomCap.transform.SetParent(bottom.transform);
+        bottomCap.transform.localPosition = new Vector3(0, targetPipeHeight / 2f, 0);
+        var bottomCapSr = bottomCap.AddComponent<SpriteRenderer>();
+        bottomCapSr.sprite = capBottomSprite;
+        bottomCapSr.sortingLayerName = "Obstacles";
+        bottomCapSr.sortingOrder = 1;
+
+        var bottomCol = bottom.AddComponent<BoxCollider2D>();
+        bottomCol.size = new Vector2(targetPipeWidth, targetPipeHeight);
+
+        Debug.Log("[GameSetup] Pipe prefab uses modular trunk-segment (tiled) + leaf/root caps");
 
         // Score zone (trigger between pipes)
         var zone = new GameObject("ScoreZone");
@@ -250,7 +324,6 @@ public static class GameSetup
         zoneCol.size = new Vector2(0.5f, 4f);
         var scoreZone = zone.AddComponent<ScoreZone>();
 
-        // Wire serialized fields via SerializedObject
         var prefab = PrefabUtility.SaveAsPrefabAsset(root, path);
         Object.DestroyImmediate(root);
 
@@ -260,7 +333,7 @@ public static class GameSetup
         so.FindProperty("_scoreZone").objectReferenceValue = prefab.transform.Find("ScoreZone").GetComponent<ScoreZone>();
         so.ApplyModifiedPropertiesWithoutUndo();
 
-        Debug.Log("[GameSetup] Created ObstaclePair prefab");
+        Debug.Log("[GameSetup] Created modular ObstaclePair prefab with trunk + caps");
         return prefab.GetComponent<ObstaclePair>();
     }
 
@@ -278,7 +351,7 @@ public static class GameSetup
         main.startLifetime = 0.4f;
         main.startSpeed = 3f;
         main.startSize = 0.15f;
-        main.startColor = new Color(1f, 0.85f, 0f); // gold
+        main.startColor = new Color(1f, 0.85f, 0f);
         main.maxParticles = 20;
         main.loop = false;
         main.playOnAwake = false;
@@ -313,7 +386,8 @@ public static class GameSetup
         main.startLifetime = 0.5f;
         main.startSpeed = 4f;
         main.startSize = 0.2f;
-        main.startColor = Color.red;
+        // Brown/tan feather burst instead of red
+        main.startColor = new Color(0.65f, 0.5f, 0.3f);
         main.maxParticles = 30;
         main.loop = false;
         main.playOnAwake = false;
@@ -330,7 +404,7 @@ public static class GameSetup
 
         var prefab = PrefabUtility.SaveAsPrefabAsset(go, path);
         Object.DestroyImmediate(go);
-        Debug.Log("[GameSetup] Created DeathParticle prefab");
+        Debug.Log("[GameSetup] Created DeathParticle prefab (feather burst)");
         return prefab.GetComponent<ParticleSystem>();
     }
 
@@ -340,19 +414,32 @@ public static class GameSetup
         var existing = AssetDatabase.LoadAssetAtPath<GameObject>(path);
         if (existing != null) return existing;
 
-        // AI Art Prompt: Pixel art kookaburra bird, side profile facing right, wings slightly raised in
-        // mid-flight. Brown/tan body, cream-white chest, dark beak, bright eye. Black outline.
-        // Transparent background (PNG). 512×512px.
-        var birdSprite = LoadOrCreateSprite("Kookaburra/kookaburra", new Color(0.6f, 0.4f, 0.2f), 32, 32, pixelsPerUnit: 960, alphaIsTransparency: true);
+        // ── Multi-part bird rig ──
+        // AI Art Prompt: Pixel art kookaburra body (no wings, no tail), side profile facing right.
+        // Brown/tan body, cream-white chest, dark beak. Transparent background. 32×32px.
+        var bodySprite = LoadOrCreateSprite("Kookaburra/kookaburra-body",
+            new Color(0.6f, 0.4f, 0.2f), 32, 32, pixelsPerUnit: 64, alphaIsTransparency: true);
+
+        // AI Art Prompt: Pixel art kookaburra wing, side view. Brown/dark feather pattern.
+        // Pivot at shoulder (top-left). Transparent background. 16×24px.
+        var wingSprite = LoadOrCreateSpriteWithPivot("Kookaburra/kookaburra-wing",
+            new Color(0.45f, 0.3f, 0.15f), 16, 24, 64, new Vector2(0.3f, 0.8f));
+
+        // AI Art Prompt: Pixel art kookaburra tail feathers, horizontal spread.
+        // Brown with dark tips. Transparent background. 16×8px.
+        var tailSprite = LoadOrCreateSprite("Kookaburra/kookaburra-tail",
+            new Color(0.5f, 0.35f, 0.2f), 16, 8, pixelsPerUnit: 64, alphaIsTransparency: true);
+
+        // AI Art Prompt: Pixel art kookaburra eye, simple black dot with white highlight.
+        // Transparent background. 8×8px.
+        var eyeSprite = LoadOrCreateSprite("Kookaburra/kookaburra-eye",
+            new Color(0.1f, 0.1f, 0.1f), 8, 8, pixelsPerUnit: 64, alphaIsTransparency: true);
 
         var go = new GameObject("Kookaburra");
         go.tag = "Player";
         go.layer = LayerMask.NameToLayer("Default");
 
-        var sr = go.AddComponent<SpriteRenderer>();
-        sr.sprite = birdSprite;
-        sr.sortingLayerName = "Player";
-
+        // Rigidbody & Collider on root
         var rb = go.AddComponent<Rigidbody2D>();
         rb.gravityScale = stats.gravityScale;
         rb.freezeRotation = true;
@@ -361,21 +448,83 @@ public static class GameSetup
         var col = go.AddComponent<CircleCollider2D>();
         col.radius = 0.3f;
 
+        // ── Body (sortingOrder 1) ──
+        var body = new GameObject("Body");
+        body.transform.SetParent(go.transform);
+        body.transform.localPosition = Vector3.zero;
+        var bodySr = body.AddComponent<SpriteRenderer>();
+        bodySr.sprite = bodySprite;
+        bodySr.sortingLayerName = "Player";
+        bodySr.sortingOrder = 1;
+
+        // ── Left Wing (sortingOrder 0, behind body, pivot at shoulder) ──
+        var leftWing = new GameObject("LeftWing");
+        leftWing.transform.SetParent(go.transform);
+        leftWing.transform.localPosition = new Vector3(-0.05f, 0.1f, 0f);
+        var leftWingSr = leftWing.AddComponent<SpriteRenderer>();
+        leftWingSr.sprite = wingSprite;
+        leftWingSr.sortingLayerName = "Player";
+        leftWingSr.sortingOrder = 0;
+
+        // ── Right Wing (sortingOrder 2, in front of body, pivot at shoulder) ──
+        var rightWing = new GameObject("RightWing");
+        rightWing.transform.SetParent(go.transform);
+        rightWing.transform.localPosition = new Vector3(-0.05f, 0.1f, 0f);
+        var rightWingSr = rightWing.AddComponent<SpriteRenderer>();
+        rightWingSr.sprite = wingSprite;
+        rightWingSr.sortingLayerName = "Player";
+        rightWingSr.sortingOrder = 2;
+
+        // ── Tail (sortingOrder 0, behind body) ──
+        var tail = new GameObject("Tail");
+        tail.transform.SetParent(go.transform);
+        tail.transform.localPosition = new Vector3(-0.25f, -0.05f, 0f);
+        var tailSr = tail.AddComponent<SpriteRenderer>();
+        tailSr.sprite = tailSprite;
+        tailSr.sortingLayerName = "Player";
+        tailSr.sortingOrder = 0;
+
+        // ── Eye (sortingOrder 3, in front of everything) ──
+        var eye = new GameObject("Eye");
+        eye.transform.SetParent(go.transform);
+        eye.transform.localPosition = new Vector3(0.15f, 0.1f, 0f);
+        var eyeSr = eye.AddComponent<SpriteRenderer>();
+        eyeSr.sprite = eyeSprite;
+        eyeSr.sortingLayerName = "Player";
+        eyeSr.sortingOrder = 3;
+
+        // Components
         var animator = go.AddComponent<Animator>();
         animator.runtimeAnimatorController = CreateKookaburraAnimator();
 
         var pc = go.AddComponent<PlayerController>();
+        var rig = go.AddComponent<KookaburraRig>();
 
-        // Wire serialized fields
+        // Save prefab
         var prefab = PrefabUtility.SaveAsPrefabAsset(go, path);
         Object.DestroyImmediate(go);
 
-        var so = new SerializedObject(prefab.GetComponent<PlayerController>());
-        so.FindProperty("_birdStats").objectReferenceValue = stats;
-        so.FindProperty("_animator").objectReferenceValue = prefab.GetComponent<Animator>();
-        so.ApplyModifiedPropertiesWithoutUndo();
+        // Wire PlayerController fields
+        var pcSo = new SerializedObject(prefab.GetComponent<PlayerController>());
+        pcSo.FindProperty("_birdStats").objectReferenceValue = stats;
+        pcSo.FindProperty("_animator").objectReferenceValue = prefab.GetComponent<Animator>();
+        pcSo.ApplyModifiedPropertiesWithoutUndo();
 
-        Debug.Log("[GameSetup] Created Kookaburra prefab with wing animation");
+        // Wire KookaburraRig fields
+        var rigSo = new SerializedObject(prefab.GetComponent<KookaburraRig>());
+        rigSo.FindProperty("_body").objectReferenceValue = prefab.transform.Find("Body");
+        rigSo.FindProperty("_leftWing").objectReferenceValue = prefab.transform.Find("LeftWing");
+        rigSo.FindProperty("_rightWing").objectReferenceValue = prefab.transform.Find("RightWing");
+        rigSo.FindProperty("_tail").objectReferenceValue = prefab.transform.Find("Tail");
+        rigSo.FindProperty("_eye").objectReferenceValue = prefab.transform.Find("Eye");
+        rigSo.FindProperty("_bodyRenderer").objectReferenceValue = prefab.transform.Find("Body").GetComponent<SpriteRenderer>();
+        rigSo.FindProperty("_leftWingRenderer").objectReferenceValue = prefab.transform.Find("LeftWing").GetComponent<SpriteRenderer>();
+        rigSo.FindProperty("_rightWingRenderer").objectReferenceValue = prefab.transform.Find("RightWing").GetComponent<SpriteRenderer>();
+        rigSo.FindProperty("_tailRenderer").objectReferenceValue = prefab.transform.Find("Tail").GetComponent<SpriteRenderer>();
+        rigSo.FindProperty("_eyeRenderer").objectReferenceValue = prefab.transform.Find("Eye").GetComponent<SpriteRenderer>();
+        rigSo.ApplyModifiedPropertiesWithoutUndo();
+
+        Debug.Log("[GameSetup] Created multi-part Kookaburra prefab (body, 2 wings, tail, eye)");
         return prefab;
     }
 
@@ -387,51 +536,114 @@ public static class GameSetup
 
         EnsureFolder("Assets/Animations");
 
-        // ── Idle clip: continuous wing flap via scale oscillation ──
+        // ── Idle clip: wing oscillation via rotation ──
         var idleClip = new AnimationClip { name = "Idle" };
-        // Wings down (squish Y, stretch X) → wings up (stretch Y, squish X)
-        idleClip.SetCurve("", typeof(Transform), "localScale.x",
+        // Left wing: oscillate rotation +-15 degrees
+        idleClip.SetCurve("LeftWing", typeof(Transform), "localEulerAngles.z",
             new AnimationCurve(
-                new Keyframe(0f, 1f),
-                new Keyframe(0.12f, 1.08f),
-                new Keyframe(0.24f, 1f)
+                new Keyframe(0f, 0f),
+                new Keyframe(0.15f, 15f),
+                new Keyframe(0.3f, 0f),
+                new Keyframe(0.45f, -15f),
+                new Keyframe(0.6f, 0f)
             ));
-        idleClip.SetCurve("", typeof(Transform), "localScale.y",
+        // Right wing: oscillate opposite
+        idleClip.SetCurve("RightWing", typeof(Transform), "localEulerAngles.z",
             new AnimationCurve(
-                new Keyframe(0f, 1f),
-                new Keyframe(0.12f, 0.88f),
-                new Keyframe(0.24f, 1f)
+                new Keyframe(0f, 0f),
+                new Keyframe(0.15f, -15f),
+                new Keyframe(0.3f, 0f),
+                new Keyframe(0.45f, 15f),
+                new Keyframe(0.6f, 0f)
+            ));
+        // Tail gentle wag
+        idleClip.SetCurve("Tail", typeof(Transform), "localEulerAngles.z",
+            new AnimationCurve(
+                new Keyframe(0f, 0f),
+                new Keyframe(0.3f, 5f),
+                new Keyframe(0.6f, 0f)
             ));
         var idleSettings = AnimationUtility.GetAnimationClipSettings(idleClip);
         idleSettings.loopTime = true;
         AnimationUtility.SetAnimationClipSettings(idleClip, idleSettings);
         AssetDatabase.CreateAsset(idleClip, "Assets/Animations/Idle.anim");
 
-        // ── Flap clip: sharp upward pulse ──
+        // ── Flap clip: sharp upstroke ──
         var flapClip = new AnimationClip { name = "Flap" };
-        flapClip.SetCurve("", typeof(Transform), "localScale.x",
+        // Left wing: thrust to +30 degrees (upstroke) then return
+        flapClip.SetCurve("LeftWing", typeof(Transform), "localEulerAngles.z",
             new AnimationCurve(
-                new Keyframe(0f, 1f),
-                new Keyframe(0.05f, 0.8f),
-                new Keyframe(0.15f, 1.1f),
-                new Keyframe(0.25f, 1f)
+                new Keyframe(0f, 0f),
+                new Keyframe(0.05f, 30f),
+                new Keyframe(0.15f, -10f),
+                new Keyframe(0.25f, 0f)
             ));
-        flapClip.SetCurve("", typeof(Transform), "localScale.y",
+        // Right wing: opposite
+        flapClip.SetCurve("RightWing", typeof(Transform), "localEulerAngles.z",
             new AnimationCurve(
-                new Keyframe(0f, 1f),
-                new Keyframe(0.05f, 1.25f),
-                new Keyframe(0.15f, 0.85f),
-                new Keyframe(0.25f, 1f)
+                new Keyframe(0f, 0f),
+                new Keyframe(0.05f, -30f),
+                new Keyframe(0.15f, 10f),
+                new Keyframe(0.25f, 0f)
             ));
         AssetDatabase.CreateAsset(flapClip, "Assets/Animations/Flap.anim");
+
+        // ── Glide clip: wings held extended ──
+        var glideClip = new AnimationClip { name = "Glide" };
+        glideClip.SetCurve("LeftWing", typeof(Transform), "localEulerAngles.z",
+            new AnimationCurve(
+                new Keyframe(0f, 0f),
+                new Keyframe(0.1f, 10f)
+            ));
+        glideClip.SetCurve("RightWing", typeof(Transform), "localEulerAngles.z",
+            new AnimationCurve(
+                new Keyframe(0f, 0f),
+                new Keyframe(0.1f, -10f)
+            ));
+        var glideSettings = AnimationUtility.GetAnimationClipSettings(glideClip);
+        glideSettings.loopTime = true;
+        AnimationUtility.SetAnimationClipSettings(glideClip, glideSettings);
+        AssetDatabase.CreateAsset(glideClip, "Assets/Animations/Glide.anim");
+
+        // ── Die clip: wings droop, eye closes ──
+        var dieClip = new AnimationClip { name = "Die" };
+        dieClip.SetCurve("LeftWing", typeof(Transform), "localEulerAngles.z",
+            new AnimationCurve(
+                new Keyframe(0f, 0f),
+                new Keyframe(0.2f, -45f)
+            ));
+        dieClip.SetCurve("RightWing", typeof(Transform), "localEulerAngles.z",
+            new AnimationCurve(
+                new Keyframe(0f, 0f),
+                new Keyframe(0.2f, 45f)
+            ));
+        // Eye shrinks (simulating closing)
+        dieClip.SetCurve("Eye", typeof(Transform), "localScale.y",
+            new AnimationCurve(
+                new Keyframe(0f, 1f),
+                new Keyframe(0.15f, 0.1f)
+            ));
+        AssetDatabase.CreateAsset(dieClip, "Assets/Animations/Die.anim");
+
+        // ── Blink clip: quick eye close/open ──
+        var blinkClip = new AnimationClip { name = "Blink" };
+        blinkClip.SetCurve("Eye", typeof(Transform), "localScale.y",
+            new AnimationCurve(
+                new Keyframe(0f, 1f),
+                new Keyframe(0.05f, 0.1f),
+                new Keyframe(0.1f, 1f)
+            ));
+        AssetDatabase.CreateAsset(blinkClip, "Assets/Animations/Blink.anim");
 
         // ── Animator Controller ──
         var controller = AnimatorController.CreateAnimatorControllerAtPath(controllerPath);
         controller.AddParameter("Flap", AnimatorControllerParameterType.Trigger);
         controller.AddParameter("Die", AnimatorControllerParameterType.Trigger);
+        controller.AddParameter("Glide", AnimatorControllerParameterType.Bool);
 
         var rootSM = controller.layers[0].stateMachine;
 
+        // States
         var idleState = rootSM.AddState("Idle");
         idleState.motion = idleClip;
         rootSM.defaultState = idleState;
@@ -439,20 +651,74 @@ public static class GameSetup
         var flapState = rootSM.AddState("Flap");
         flapState.motion = flapClip;
 
-        // Any State → Flap (on trigger)
+        var glideState = rootSM.AddState("Glide");
+        glideState.motion = glideClip;
+
+        var dieState = rootSM.AddState("Die");
+        dieState.motion = dieClip;
+
+        // Transitions
+        // Any State → Flap (trigger)
         var toFlap = rootSM.AddAnyStateTransition(flapState);
         toFlap.AddCondition(AnimatorConditionMode.If, 0, "Flap");
         toFlap.duration = 0f;
         toFlap.hasExitTime = false;
 
         // Flap → Idle (after clip finishes)
-        var toIdle = flapState.AddTransition(idleState);
-        toIdle.hasExitTime = true;
-        toIdle.exitTime = 1f;
-        toIdle.duration = 0.1f;
+        var flapToIdle = flapState.AddTransition(idleState);
+        flapToIdle.hasExitTime = true;
+        flapToIdle.exitTime = 1f;
+        flapToIdle.duration = 0.1f;
+
+        // Idle → Glide (when Glide bool is true)
+        var idleToGlide = idleState.AddTransition(glideState);
+        idleToGlide.AddCondition(AnimatorConditionMode.If, 0, "Glide");
+        idleToGlide.duration = 0.15f;
+        idleToGlide.hasExitTime = false;
+
+        // Glide → Idle (when Glide bool is false)
+        var glideToIdle = glideState.AddTransition(idleState);
+        glideToIdle.AddCondition(AnimatorConditionMode.IfNot, 0, "Glide");
+        glideToIdle.duration = 0.15f;
+        glideToIdle.hasExitTime = false;
+
+        // Any State → Die (trigger)
+        var toDie = rootSM.AddAnyStateTransition(dieState);
+        toDie.AddCondition(AnimatorConditionMode.If, 0, "Die");
+        toDie.duration = 0f;
+        toDie.hasExitTime = false;
+
+        // Add Blink sub-layer
+        controller.AddLayer("Blink");
+        var blinkLayer = controller.layers[1];
+        blinkLayer.defaultWeight = 1f;
+        var blinkSM = blinkLayer.stateMachine;
+
+        var blinkIdle = blinkSM.AddState("BlinkIdle");
+        blinkIdle.motion = null; // Empty state — no animation
+        blinkSM.defaultState = blinkIdle;
+
+        var blinkState = blinkSM.AddState("Blink");
+        blinkState.motion = blinkClip;
+
+        // Random blink transition (using exit time to simulate random intervals)
+        var toBlinkState = blinkIdle.AddTransition(blinkState);
+        toBlinkState.hasExitTime = true;
+        toBlinkState.exitTime = 1f;
+        toBlinkState.duration = 0f;
+
+        var fromBlinkState = blinkState.AddTransition(blinkIdle);
+        fromBlinkState.hasExitTime = true;
+        fromBlinkState.exitTime = 1f;
+        fromBlinkState.duration = 0f;
+
+        // Update the layer array (Unity requires setting it back)
+        var layers = controller.layers;
+        layers[1] = blinkLayer;
+        controller.layers = layers;
 
         AssetDatabase.SaveAssets();
-        Debug.Log("[GameSetup] Created Kookaburra animator with Idle + Flap clips");
+        Debug.Log("[GameSetup] Created Kookaburra animator with Idle, Flap, Glide, Die + Blink sub-layer");
         return controller;
     }
 
@@ -472,7 +738,7 @@ public static class GameSetup
         {
             cam.orthographic = true;
             cam.orthographicSize = 5f;
-            cam.backgroundColor = new Color(0.53f, 0.81f, 0.92f); // sky blue
+            cam.backgroundColor = new Color(0.53f, 0.81f, 0.92f);
             cam.transform.position = new Vector3(0, 0, -10);
 
             if (cam.GetComponent<ScreenShake>() == null)
@@ -491,7 +757,6 @@ public static class GameSetup
 
         var audioMgr = CreateManager<AudioManager>("AudioManager");
         WireField(audioMgr, "_audioConfig", audioConfig);
-        // Add AudioSources
         var audioGO = audioMgr.gameObject;
         var audioSources = audioGO.GetComponents<AudioSource>();
         AudioSource sfxSource, musicSource;
@@ -534,18 +799,25 @@ public static class GameSetup
         WireField(particleSpawner, "_deathParticlePrefab", deathParticlePrefab);
         WireField(particleSpawner, "_playerTransform", player.transform);
 
-        // ── World Boundaries (ground + ceiling colliders) ──
+        // ── World Boundaries ──
         CreateBoundary("Ground", new Vector3(0f, -6f, 0f));
         CreateBoundary("Ceiling", new Vector3(0f, 6f, 0f));
 
-        // ── Background Parallax ──
-        CreateParallaxLayer("BackgroundFar", 0.3f, new Color(0.6f, 0.85f, 0.95f), -2);
-        CreateParallaxLayer("BackgroundNear", 0.6f, new Color(0.4f, 0.75f, 0.4f), -1);
+        // ── Background Parallax (4+ layers) ──
+        // Layer 1: Sky gradient (speed 0.0 — static backdrop)
+        CreateParallaxLayer("SkyGradient", 0.0f, new Color(0.53f, 0.81f, 0.92f), -4, "Background/sky-gradient");
+        // Layer 2: Hills silhouette (speed 0.2)
+        CreateParallaxLayer("HillsSilhouette", 0.2f, new Color(0.35f, 0.55f, 0.35f), -3, "Background/hills-silhouette");
+        // Layer 3: Trees midground (speed 0.5)
+        CreateParallaxLayer("TreesMidground", 0.5f, new Color(0.3f, 0.65f, 0.3f), -2, "Background/trees-midground");
+        // Layer 4: Near trees (speed 0.7)
+        CreateParallaxLayer("BackgroundNear", 0.7f, new Color(0.4f, 0.75f, 0.4f), -1, "Background/backgroundnear");
 
         // ── Ground Layer ──
-        // AI Art Prompt: Pixel art Australian ground strip. Red-brown dirt with tufts of dry grass on
-        // top edge. Bottom solid. Transparent above grass line. Tileable horizontally. 1024×256px.
         CreateGroundLayer();
+
+        // ── Cloud Spawner ──
+        CreateCloudSpawner();
 
         // ── Difficulty Visual Feedback ──
         SetupDifficultyVisualFeedback(cam);
@@ -582,22 +854,18 @@ public static class GameSetup
         }
     }
 
-    private static void CreateParallaxLayer(string name, float speedMultiplier, Color color, int sortOrder)
+    private static void CreateParallaxLayer(string name, float speedMultiplier, Color color, int sortOrder, string spritePath = null)
     {
         if (GameObject.Find(name) != null) return;
 
-        // AI Art Prompts:
-        // Far: Pixel art Australian outback panorama. Warm gradient sky, distant mountain silhouettes.
-        //   Red-orange desert floor. NOT transparent. Tileable horizontally. 1024×1024px.
-        // Near: Pixel art eucalyptus tree canopy silhouettes. Dark green/olive. Lower portion transparent.
-        //   Tileable horizontally. 1024×512px.
-        bool isNear = name.Contains("Near");
-        var bgSprite = LoadOrCreateSprite($"Background/{name.ToLower()}", color, 128, 128, pixelsPerUnit: 64, alphaIsTransparency: isNear);
+        bool isTransparent = !name.Contains("Sky");
+        var bgSprite = LoadOrCreateSprite(
+            spritePath ?? $"Background/{name.ToLower()}",
+            color, 128, 128, pixelsPerUnit: 64, alphaIsTransparency: isTransparent);
 
         var go = new GameObject(name);
         var layer = go.AddComponent<ParallaxLayer>();
 
-        // Sprite A
         var sprA = new GameObject("SpriteA");
         sprA.transform.SetParent(go.transform);
         sprA.transform.localPosition = Vector3.zero;
@@ -608,7 +876,6 @@ public static class GameSetup
         srA.drawMode = SpriteDrawMode.Tiled;
         srA.size = new Vector2(20f, 10f);
 
-        // Sprite B
         var sprB = new GameObject("SpriteB");
         sprB.transform.SetParent(go.transform);
         sprB.transform.localPosition = new Vector3(20f, 0, 0);
@@ -619,7 +886,6 @@ public static class GameSetup
         srB.drawMode = SpriteDrawMode.Tiled;
         srB.size = new Vector2(20f, 10f);
 
-        // Wire
         var so = new SerializedObject(layer);
         so.FindProperty("_scrollSpeedMultiplier").floatValue = speedMultiplier;
         so.FindProperty("_spriteA").objectReferenceValue = srA;
@@ -627,42 +893,66 @@ public static class GameSetup
         so.FindProperty("_baseSpeed").floatValue = 3f;
         so.ApplyModifiedPropertiesWithoutUndo();
 
-        Debug.Log($"[GameSetup] Created parallax layer: {name}");
+        Debug.Log($"[GameSetup] Created parallax layer: {name} (speed: {speedMultiplier})");
     }
 
     private static void CreateGroundLayer()
     {
         if (GameObject.Find("Ground Layer") != null) return;
 
-        var groundSprite = LoadOrCreateSprite("Ground/ground", new Color(0.55f, 0.3f, 0.15f), 128, 32, pixelsPerUnit: 64, alphaIsTransparency: true);
+        // Surface detail sprite
+        // AI Art Prompt: Pixel art Australian ground surface. Grass tufts, small rocks on red-brown dirt.
+        // Transparent below surface line. Tileable horizontally. 128×32px.
+        var surfaceSprite = LoadOrCreateSprite("Ground/ground-surface", new Color(0.55f, 0.3f, 0.15f), 128, 32, pixelsPerUnit: 64, alphaIsTransparency: true);
 
         var go = new GameObject("Ground Layer");
         go.transform.position = new Vector3(0f, -4.5f, 0f);
         var layer = go.AddComponent<ParallaxLayer>();
 
-        // Sprite A
         var sprA = new GameObject("SpriteA");
         sprA.transform.SetParent(go.transform);
         sprA.transform.localPosition = Vector3.zero;
         var srA = sprA.AddComponent<SpriteRenderer>();
-        srA.sprite = groundSprite;
+        srA.sprite = surfaceSprite;
         srA.sortingLayerName = "Ground";
         srA.sortingOrder = 0;
         srA.drawMode = SpriteDrawMode.Tiled;
         srA.size = new Vector2(20f, 2f);
 
-        // Sprite B
         var sprB = new GameObject("SpriteB");
         sprB.transform.SetParent(go.transform);
         sprB.transform.localPosition = new Vector3(20f, 0, 0);
         var srB = sprB.AddComponent<SpriteRenderer>();
-        srB.sprite = groundSprite;
+        srB.sprite = surfaceSprite;
         srB.sortingLayerName = "Ground";
         srB.sortingOrder = 0;
         srB.drawMode = SpriteDrawMode.Tiled;
         srB.size = new Vector2(20f, 2f);
 
-        // Wire — ground scrolls at full speed (1.0 multiplier)
+        // Underground fill
+        // AI Art Prompt: Pixel art underground fill. Solid dark brown dirt. Tileable. 64×64px.
+        var subSprite = LoadOrCreateSprite("Ground/ground-sub", new Color(0.35f, 0.2f, 0.1f), 64, 64, pixelsPerUnit: 64);
+
+        var subA = new GameObject("SubA");
+        subA.transform.SetParent(go.transform);
+        subA.transform.localPosition = new Vector3(0f, -1.5f, 0f);
+        var subSrA = subA.AddComponent<SpriteRenderer>();
+        subSrA.sprite = subSprite;
+        subSrA.sortingLayerName = "Ground";
+        subSrA.sortingOrder = -1;
+        subSrA.drawMode = SpriteDrawMode.Tiled;
+        subSrA.size = new Vector2(20f, 3f);
+
+        var subB = new GameObject("SubB");
+        subB.transform.SetParent(go.transform);
+        subB.transform.localPosition = new Vector3(20f, -1.5f, 0f);
+        var subSrB = subB.AddComponent<SpriteRenderer>();
+        subSrB.sprite = subSprite;
+        subSrB.sortingLayerName = "Ground";
+        subSrB.sortingOrder = -1;
+        subSrB.drawMode = SpriteDrawMode.Tiled;
+        subSrB.size = new Vector2(20f, 3f);
+
         var so = new SerializedObject(layer);
         so.FindProperty("_scrollSpeedMultiplier").floatValue = 1f;
         so.FindProperty("_spriteA").objectReferenceValue = srA;
@@ -670,7 +960,38 @@ public static class GameSetup
         so.FindProperty("_baseSpeed").floatValue = 3f;
         so.ApplyModifiedPropertiesWithoutUndo();
 
-        Debug.Log("[GameSetup] Created ground layer at y=-4.5");
+        Debug.Log("[GameSetup] Created modular ground layer (surface + underground fill)");
+    }
+
+    private static void CreateCloudSpawner()
+    {
+        if (Object.FindFirstObjectByType<CloudSpawner>() != null) return;
+
+        // Cloud sprites
+        // AI Art Prompt: Pixel art small fluffy cloud, white/light grey. Transparent background. 32×16px.
+        var cloudSmall = LoadOrCreateSprite("Background/cloud-small", new Color(1f, 1f, 1f, 0.7f), 32, 16, pixelsPerUnit: 64, alphaIsTransparency: true);
+        // AI Art Prompt: Pixel art large fluffy cloud, white/light grey. Transparent background. 64×24px.
+        var cloudLarge = LoadOrCreateSprite("Background/cloud-large", new Color(0.95f, 0.95f, 1f, 0.8f), 64, 24, pixelsPerUnit: 64, alphaIsTransparency: true);
+
+        var go = new GameObject("CloudSpawner");
+        var spawner = go.AddComponent<CloudSpawner>();
+
+        var so = new SerializedObject(spawner);
+        var spritesProp = so.FindProperty("_cloudSprites");
+        spritesProp.arraySize = 2;
+        spritesProp.GetArrayElementAtIndex(0).objectReferenceValue = cloudSmall;
+        spritesProp.GetArrayElementAtIndex(1).objectReferenceValue = cloudLarge;
+        so.FindProperty("_maxClouds").intValue = 6;
+        so.FindProperty("_minY").floatValue = -2f;
+        so.FindProperty("_maxY").floatValue = 4f;
+        so.FindProperty("_minDriftSpeed").floatValue = 0.1f;
+        so.FindProperty("_maxDriftSpeed").floatValue = 0.4f;
+        so.FindProperty("_spawnInterval").floatValue = 3f;
+        so.FindProperty("_minScale").floatValue = 0.5f;
+        so.FindProperty("_maxScale").floatValue = 1.2f;
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        Debug.Log("[GameSetup] Created CloudSpawner with 2 cloud sprites");
     }
 
     private static void SetupDifficultyVisualFeedback(Camera cam)
@@ -681,13 +1002,12 @@ public static class GameSetup
         var go = new GameObject("DifficultyVisualFeedback");
         var feedback = go.AddComponent<DifficultyVisualFeedback>();
 
-        // Create sky gradient: sky blue → warm orange → deep red-purple
         var gradient = new Gradient();
         gradient.SetKeys(
             new GradientColorKey[] {
-                new GradientColorKey(new Color(0.53f, 0.81f, 0.92f), 0f),    // sky blue
-                new GradientColorKey(new Color(0.95f, 0.65f, 0.25f), 0.5f),  // warm orange
-                new GradientColorKey(new Color(0.45f, 0.15f, 0.35f), 1f)     // deep red-purple
+                new GradientColorKey(new Color(0.53f, 0.81f, 0.92f), 0f),
+                new GradientColorKey(new Color(0.95f, 0.65f, 0.25f), 0.5f),
+                new GradientColorKey(new Color(0.45f, 0.15f, 0.35f), 1f)
             },
             new GradientAlphaKey[] {
                 new GradientAlphaKey(1f, 0f),
@@ -695,7 +1015,6 @@ public static class GameSetup
             }
         );
 
-        // Create speed line particle system
         var speedLineGO = new GameObject("SpeedLines");
         speedLineGO.transform.SetParent(cam.transform);
         speedLineGO.transform.localPosition = new Vector3(2f, 0f, 5f);
@@ -724,43 +1043,27 @@ public static class GameSetup
         renderer.sortingLayerName = "UI";
         renderer.sortingOrder = -1;
 
-        // Collect parallax SpriteRenderers
         var renderers = new System.Collections.Generic.List<SpriteRenderer>();
-        foreach (var layerName in new[] { "BackgroundFar", "BackgroundNear", "Ground Layer" })
+        foreach (var layerName in new[] { "SkyGradient", "HillsSilhouette", "TreesMidground", "BackgroundNear", "Ground Layer" })
         {
             var layerGO = GameObject.Find(layerName);
             if (layerGO != null)
                 renderers.AddRange(layerGO.GetComponentsInChildren<SpriteRenderer>());
         }
 
-        // Wire fields
         var so = new SerializedObject(feedback);
         so.FindProperty("_mainCamera").objectReferenceValue = cam;
         so.FindProperty("_speedLines").objectReferenceValue = speedLinePS;
         so.FindProperty("_speedLineThreshold").floatValue = 5f;
         so.FindProperty("_maxDifficultyScore").floatValue = 200f;
+        so.ApplyModifiedPropertiesWithoutUndo();
 
-        // Wire gradient
-        var gradProp = so.FindProperty("_skyGradient");
-        if (gradProp != null)
-        {
-            // Gradient can't easily be serialized via SerializedProperty in a simple way.
-            // Instead, we set it after applying other fields.
-            so.ApplyModifiedPropertiesWithoutUndo();
-        }
-        else
-        {
-            so.ApplyModifiedPropertiesWithoutUndo();
-        }
-
-        // Wire parallax renderers array
         var arrayProp = so.FindProperty("_parallaxRenderers");
         arrayProp.arraySize = renderers.Count;
         for (int i = 0; i < renderers.Count; i++)
             arrayProp.GetArrayElementAtIndex(i).objectReferenceValue = renderers[i];
         so.ApplyModifiedPropertiesWithoutUndo();
 
-        // Set gradient via reflection since SerializedProperty gradient handling is complex in editor scripts
         var field = typeof(DifficultyVisualFeedback).GetField("_skyGradient",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
         if (field != null)
@@ -777,7 +1080,7 @@ public static class GameSetup
         var go = new GameObject(name);
         go.transform.position = position;
         var col = go.AddComponent<BoxCollider2D>();
-        col.size = new Vector2(40f, 1f); // wide enough to span any screen width
+        col.size = new Vector2(40f, 1f);
         Debug.Log($"[GameSetup] Created boundary: {name} at y={position.y}");
     }
 
@@ -796,7 +1099,7 @@ public static class GameSetup
         scaler.matchWidthOrHeight = 0.5f;
         canvasGO.AddComponent<GraphicRaycaster>();
 
-        // ── Safe Area ──
+        // Safe Area
         var safeAreaGO = CreatePanel(canvasGO.transform, "SafeArea");
         safeAreaGO.AddComponent<SafeAreaHandler>();
 
@@ -833,8 +1136,27 @@ public static class GameSetup
         SetRectTransform(newHighScoreIndicator, new Vector2(0.5f, 0.38f), new Vector2(0.5f, 0.38f), Vector2.zero, new Vector2(600, 60));
         newHighScoreIndicator.SetActive(false);
 
+        // Medal display placeholder
+        var medalGO = new GameObject("MedalDisplay", typeof(RectTransform));
+        medalGO.transform.SetParent(gameOverPanel.transform, false);
+        var medalImage = medalGO.AddComponent<Image>();
+        medalImage.color = new Color(1f, 1f, 1f, 0f); // Hidden by default
+        SetRectTransform(medalGO, new Vector2(0.5f, 0.62f), new Vector2(0.5f, 0.62f), Vector2.zero, new Vector2(120, 120));
+
         var restartBtn = CreateButton(gameOverPanel.transform, "RestartButton", "RESTART");
         SetRectTransform(restartBtn, new Vector2(0.5f, 0.25f), new Vector2(0.5f, 0.25f), Vector2.zero, new Vector2(400, 80));
+
+        // ── Screen Flash Overlay (for death effect) ──
+        var flashGO = new GameObject("ScreenFlash", typeof(RectTransform));
+        flashGO.transform.SetParent(canvasGO.transform, false);
+        var flashImage = flashGO.AddComponent<Image>();
+        flashImage.color = new Color(1f, 1f, 1f, 0f);
+        flashImage.raycastTarget = false;
+        var flashRT = flashGO.GetComponent<RectTransform>();
+        flashRT.anchorMin = Vector2.zero;
+        flashRT.anchorMax = Vector2.one;
+        flashRT.offsetMin = Vector2.zero;
+        flashRT.offsetMax = Vector2.zero;
 
         // ── EventSystem ──
         if (Object.FindFirstObjectByType<UnityEngine.EventSystems.EventSystem>() == null)
@@ -857,9 +1179,11 @@ public static class GameSetup
         uiSo.FindProperty("_startButton").objectReferenceValue = startBtn.GetComponentInChildren<Button>();
         uiSo.FindProperty("_restartButton").objectReferenceValue = restartBtn.GetComponentInChildren<Button>();
         uiSo.FindProperty("_gameOverCanvasGroup").objectReferenceValue = canvasGroup;
+        uiSo.FindProperty("_screenFlash").objectReferenceValue = flashImage;
+        uiSo.FindProperty("_medalImage").objectReferenceValue = medalImage;
         uiSo.ApplyModifiedPropertiesWithoutUndo();
 
-        Debug.Log("[GameSetup] Created UI hierarchy");
+        Debug.Log("[GameSetup] Created UI hierarchy with screen flash and medal display");
     }
 
     // ─── UI Helpers ───────────────────────────────────────────────
@@ -885,7 +1209,6 @@ public static class GameSetup
         tmp.fontSize = fontSize;
         tmp.alignment = TextAlignmentOptions.Center;
         tmp.color = Color.white;
-        // Use default TMP font (will resolve at runtime if TMP essentials are imported)
         return go;
     }
 
@@ -894,7 +1217,7 @@ public static class GameSetup
         var go = new GameObject(name, typeof(RectTransform));
         go.transform.SetParent(parent, false);
         var image = go.AddComponent<Image>();
-        image.color = new Color(0.2f, 0.6f, 0.2f, 0.9f);
+        image.color = new Color(0.3f, 0.69f, 0.31f, 0.9f); // Material green
         var btn = go.AddComponent<Button>();
 
         var textGO = new GameObject("Text", typeof(RectTransform));
@@ -925,34 +1248,26 @@ public static class GameSetup
 
     // ─── Difficulty Curves ─────────────────────────────────────────
 
-    /// <summary>
-    /// S-curve spanning score 0–200: gentle start (0–15), steep ramp (15–80), gradual plateau (80–200).
-    /// Output ranges 0→1.
-    /// </summary>
     private static AnimationCurve CreateSCurve()
     {
         return new AnimationCurve(
-            new Keyframe(0f,   0f,   0f,    0f),      // flat start
-            new Keyframe(15f,  0.05f, 0.003f, 0.015f), // gentle up to score 15
-            new Keyframe(50f,  0.5f,  0.012f, 0.012f), // midpoint — steep ramp through here
-            new Keyframe(80f,  0.8f,  0.008f, 0.004f), // starting to plateau
-            new Keyframe(120f, 0.92f, 0.002f, 0.001f), // gradual approach
-            new Keyframe(200f, 1f,    0.001f, 0f)       // fully maxed
+            new Keyframe(0f,   0f,   0f,    0f),
+            new Keyframe(15f,  0.05f, 0.003f, 0.015f),
+            new Keyframe(50f,  0.5f,  0.012f, 0.012f),
+            new Keyframe(80f,  0.8f,  0.008f, 0.004f),
+            new Keyframe(120f, 0.92f, 0.002f, 0.001f),
+            new Keyframe(200f, 1f,    0.001f, 0f)
         );
     }
 
-    /// <summary>
-    /// Oscillation curve: flat zero until score 60, then ramps to 1.0 by score 150.
-    /// Pipes don't move at all until the player reaches a decent score.
-    /// </summary>
     private static AnimationCurve CreateOscillationCurve()
     {
         return new AnimationCurve(
-            new Keyframe(0f,   0f,  0f,    0f),       // no oscillation
-            new Keyframe(60f,  0f,  0f,    0.005f),   // still zero at 60, starts ramping
-            new Keyframe(100f, 0.5f, 0.012f, 0.012f), // halfway
-            new Keyframe(150f, 0.9f, 0.005f, 0.002f), // nearly maxed
-            new Keyframe(200f, 1f,   0.001f, 0f)       // fully maxed
+            new Keyframe(0f,   0f,  0f,    0f),
+            new Keyframe(60f,  0f,  0f,    0.005f),
+            new Keyframe(100f, 0.5f, 0.012f, 0.012f),
+            new Keyframe(150f, 0.9f, 0.005f, 0.002f),
+            new Keyframe(200f, 1f,   0.001f, 0f)
         );
     }
 

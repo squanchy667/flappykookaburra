@@ -8,10 +8,15 @@ public class PlayerController : MonoBehaviour
 
     private static readonly int FlapHash = Animator.StringToHash("Flap");
     private static readonly int DieHash = Animator.StringToHash("Die");
+    private static readonly int GlideHash = Animator.StringToHash("Glide");
 
     private Rigidbody2D _rb;
     private bool _isAlive = true;
     private bool _inputEnabled;
+    private float _timeSinceFlap;
+    private const float GlideDelay = 0.4f;
+
+    public bool IsAlive => _isAlive;
 
     private void Awake()
     {
@@ -55,6 +60,12 @@ public class PlayerController : MonoBehaviour
             Flap();
         }
 
+        _timeSinceFlap += Time.deltaTime;
+        if (_timeSinceFlap > GlideDelay && _rb.velocity.y < -1f && _animator != null)
+        {
+            _animator.SetBool(GlideHash, true);
+        }
+
         UpdateRotation();
     }
 
@@ -72,8 +83,13 @@ public class PlayerController : MonoBehaviour
         if (AudioManager.Instance != null)
             AudioManager.Instance.PlayFlap();
 
+        _timeSinceFlap = 0f;
+
         if (_animator != null)
+        {
+            _animator.SetBool(GlideHash, false);
             _animator.SetTrigger(FlapHash);
+        }
     }
 
     private void UpdateRotation()
@@ -94,8 +110,10 @@ public class PlayerController : MonoBehaviour
         Die();
     }
 
-    private void Die()
+    public void Die()
     {
+        if (!_isAlive) return;
+
         _isAlive = false;
         _inputEnabled = false;
 
@@ -120,6 +138,7 @@ public class PlayerController : MonoBehaviour
                 _rb.simulated = true;
                 _rb.gravityScale = _birdStats.gravityScale;
                 _rb.velocity = Vector2.zero;
+                _timeSinceFlap = 0f;
                 break;
             case GameState.GameOver:
                 _inputEnabled = false;

@@ -1,17 +1,10 @@
-using System.Collections;
 using UnityEngine;
+using DG.Tweening;
 
 public class ScreenShake : MonoBehaviour
 {
     [SerializeField] private float _shakeDuration = 0.2f;
     [SerializeField] private float _shakeMagnitude = 0.15f;
-
-    private Vector3 _originalPosition;
-
-    private void Awake()
-    {
-        _originalPosition = transform.localPosition;
-    }
 
     private void OnEnable()
     {
@@ -27,25 +20,9 @@ public class ScreenShake : MonoBehaviour
     {
         if (state == GameState.GameOver)
         {
-            StartCoroutine(Shake());
+            DOTween.Kill(transform);
+            transform.DOShakePosition(_shakeDuration, _shakeMagnitude, 10)
+                .SetUpdate(true);
         }
-    }
-
-    private IEnumerator Shake()
-    {
-        float elapsed = 0f;
-
-        while (elapsed < _shakeDuration)
-        {
-            float x = Random.Range(-1f, 1f) * _shakeMagnitude;
-            float y = Random.Range(-1f, 1f) * _shakeMagnitude;
-
-            transform.localPosition = _originalPosition + new Vector3(x, y, 0f);
-
-            elapsed += Time.deltaTime;
-            yield return null;
-        }
-
-        transform.localPosition = _originalPosition;
     }
 }

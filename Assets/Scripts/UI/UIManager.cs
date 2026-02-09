@@ -1,7 +1,7 @@
-using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using DG.Tweening;
 
 public class UIManager : MonoBehaviour
 {
@@ -24,9 +24,18 @@ public class UIManager : MonoBehaviour
 
     [Header("Animations")]
     [SerializeField] private CanvasGroup _gameOverCanvasGroup;
-    [SerializeField] private float _fadeInDuration = 0.3f;
+
+    [Header("Premium UI")]
+    [SerializeField] private Image _screenFlash;
+    [SerializeField] private Image _medalImage;
+    [SerializeField] private GameOverSequence _gameOverSequence;
+    [SerializeField] private TitleScreenAnimator _titleScreenAnimator;
+    [SerializeField] private DeathSequence _deathSequence;
+    [SerializeField] private ScreenFlash _screenFlashController;
+    [SerializeField] private MedalDisplay _medalDisplay;
 
     private bool _isNewHighScore;
+    private bool _deathSequencePlaying;
 
     private void Awake()
     {
@@ -46,55 +55,86 @@ public class UIManager : MonoBehaviour
         GameManager.OnGameStateChanged -= HandleGameStateChanged;
         ScoreManager.OnScoreChanged -= HandleScoreChanged;
         ScoreManager.OnHighScoreChanged -= HandleHighScoreChanged;
+        DOTween.KillAll();
+    }
+
+    private void Start()
+    {
+        // Play title entrance animation
+        if (_titleScreenAnimator != null)
+            _titleScreenAnimator.PlayEntrance();
     }
 
     private void HandleGameStateChanged(GameState state)
     {
-        _mainMenuPanel.SetActive(state == GameState.Menu);
-        _hudPanel.SetActive(state == GameState.Playing);
-
-        if (state == GameState.GameOver)
+        switch (state)
         {
-            ShowGameOver();
+            case GameState.Menu:
+                _mainMenuPanel.SetActive(true);
+                _hudPanel.SetActive(false);
+                _gameOverPanel.SetActive(false);
+                _deathSequencePlaying = false;
+                if (_titleScreenAnimator != null)
+                    _titleScreenAnimator.PlayEntrance();
+                break;
+
+            case GameState.Playing:
+                _hudPanel.SetActive(true);
+                _gameOverPanel.SetActive(false);
+                _isNewHighScore = false;
+                _deathSequencePlaying = false;
+                break;
+
+            case GameState.GameOver:
+                HandleDeath();
+                break;
+        }
+    }
+
+    private void HandleDeath()
+    {
+        _deathSequencePlaying = true;
+
+        // Play death effects first, then show game over
+        if (_deathSequence != null)
+        {
+            _deathSequence.Play(ShowGameOver);
         }
         else
         {
-            _gameOverPanel.SetActive(false);
-        }
-
-        if (state == GameState.Playing)
-        {
-            _isNewHighScore = false;
+            ShowGameOver();
         }
     }
 
     private void ShowGameOver()
     {
-        _finalScoreText.text = ScoreManager.Instance.CurrentScore.ToString();
-        _highScoreText.text = ScoreManager.Instance.HighScore.ToString();
+        _deathSequencePlaying = false;
 
-        if (_newHighScoreIndicator != null)
-            _newHighScoreIndicator.SetActive(_isNewHighScore);
+        int finalScore = ScoreManager.Instance != null ? ScoreManager.Instance.CurrentScore : 0;
+        int highScore = ScoreManager.Instance != null ? ScoreManager.Instance.HighScore : 0;
 
-        _gameOverPanel.SetActive(true);
-
-        if (_gameOverCanvasGroup != null)
+        // Use choreographed sequence if available
+        if (_gameOverSequence != null)
         {
-            StartCoroutine(FadeInGameOver());
+            _gameOverSequence.Play(finalScore, highScore, _isNewHighScore);
         }
-    }
-
-    private IEnumerator FadeInGameOver()
-    {
-        _gameOverCanvasGroup.alpha = 0f;
-        float elapsed = 0f;
-        while (elapsed < _fadeInDuration)
+        else
         {
-            elapsed += Time.unscaledDeltaTime;
-            _gameOverCanvasGroup.alpha = Mathf.Clamp01(elapsed / _fadeInDuration);
-            yield return null;
+            // Fallback: simple display
+            _finalScoreText.text = finalScore.ToString();
+            _highScoreText.text = highScore.ToString();
+
+            if (_newHighScoreIndicator != null)
+                _newHighScoreIndicator.SetActive(_isNewHighScore);
+
+            _gameOverPanel.SetActive(true);
+
+            if (_gameOverCanvasGroup != null)
+            {
+                _gameOverCanvasGroup.alpha = 0f;
+                _gameOverCanvasGroup.DOFade(1f, 0.3f).SetUpdate(true);
+            }
         }
-        _gameOverCanvasGroup.alpha = 1f;
     }
 
     private void HandleScoreChanged(int score)
@@ -109,11 +149,32 @@ public class UIManager : MonoBehaviour
 
     private void OnStartClicked()
     {
-        GameManager.Instance.StartGame();
+        if (_titleScreenAnimator != null)
+        {
+            _titleScreenAnimator.PlayExit(() =>
+            {
+                _mainMenuPanel.SetActive(false);
+                GameManager.Instance.StartGame();
+            });
+        }
+        else
+        {
+            _mainMenuPanel.SetActive(false);
+            GameManager.Instance.StartGame();
+        }
     }
 
     private void OnRestartClicked()
     {
+        // Kill all tweens before scene reload to prevent leaks
+        DOTween.KillAll();
+        Time.timeScale = 1f;
+
+        if (_deathSequence != null)
+            _deathSequence.Kill();
+        if (_gameOverSequence != null)
+            _gameOverSequence.Kill();
+
         GameManager.Instance.RestartGame();
     }
 }

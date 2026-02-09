@@ -1,5 +1,5 @@
-using System.Collections;
 using UnityEngine;
+using DG.Tweening;
 
 public class ScorePunchEffect : MonoBehaviour
 {
@@ -21,25 +21,15 @@ public class ScorePunchEffect : MonoBehaviour
     private void OnDisable()
     {
         ScoreManager.OnScoreChanged -= HandleScoreChanged;
+        DOTween.Kill(transform);
     }
 
     private void HandleScoreChanged(int score)
     {
-        StopAllCoroutines();
-        StartCoroutine(PunchCoroutine());
-    }
-
-    private IEnumerator PunchCoroutine()
-    {
+        DOTween.Kill(transform);
         transform.localScale = _originalScale * _punchScale;
-        float elapsed = 0f;
-        while (elapsed < _punchDuration)
-        {
-            elapsed += Time.deltaTime;
-            float t = elapsed / _punchDuration;
-            transform.localScale = Vector3.Lerp(_originalScale * _punchScale, _originalScale, t);
-            yield return null;
-        }
-        transform.localScale = _originalScale;
+        transform.DOScale(_originalScale, _punchDuration)
+            .SetEase(Ease.OutBack)
+            .SetUpdate(true);
     }
 }
