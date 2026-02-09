@@ -4,6 +4,10 @@ using UnityEngine;
 public class PlayerController : MonoBehaviour
 {
     [SerializeField] private BirdStats _birdStats;
+    [SerializeField] private Animator _animator;
+
+    private static readonly int FlapHash = Animator.StringToHash("Flap");
+    private static readonly int DieHash = Animator.StringToHash("Die");
 
     private Rigidbody2D _rb;
     private bool _isAlive = true;
@@ -12,6 +16,8 @@ public class PlayerController : MonoBehaviour
     private void Awake()
     {
         _rb = GetComponent<Rigidbody2D>();
+        if (_animator == null)
+            _animator = GetComponent<Animator>();
     }
 
     private void OnEnable()
@@ -54,6 +60,9 @@ public class PlayerController : MonoBehaviour
 
         if (AudioManager.Instance != null)
             AudioManager.Instance.PlayFlap();
+
+        if (_animator != null)
+            _animator.SetTrigger(FlapHash);
     }
 
     private void UpdateRotation()
@@ -78,6 +87,10 @@ public class PlayerController : MonoBehaviour
     {
         _isAlive = false;
         _inputEnabled = false;
+
+        if (_animator != null)
+            _animator.SetTrigger(DieHash);
+
         transform.rotation = Quaternion.Euler(0f, 0f, _birdStats.deathRotation);
         GameManager.Instance.GameOver();
     }
