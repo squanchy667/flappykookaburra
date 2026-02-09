@@ -11,7 +11,7 @@ public class Obstacle : MonoBehaviour
 
     private void Update()
     {
-        if (GameManager.Instance.CurrentState != GameState.Playing) return;
+        if (GameManager.Instance == null || GameManager.Instance.CurrentState != GameState.Playing) return;
 
         transform.position += Vector3.left * _scrollSpeed * Time.deltaTime;
     }
