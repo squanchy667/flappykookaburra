@@ -78,15 +78,15 @@ public class GameOverSequence : MonoBehaviour
         // 0.6s: Score counts up from 0 to final
         if (_finalScoreText != null)
         {
-            int displayScore = 0;
+            float displayScore = 0f;
             float countDuration = Mathf.Min(finalScore * 0.03f, 1.5f);
             _sequence.Insert(0.6f,
                 DOTween.To(() => displayScore, v =>
                 {
                     displayScore = v;
-                    _finalScoreText.text = v.ToString();
+                    _finalScoreText.text = ((int)v).ToString();
                     _finalScoreText.color = Color.white;
-                }, finalScore, Mathf.Max(countDuration, 0.3f)).SetEase(Ease.OutQuad)
+                }, (float)finalScore, Mathf.Max(countDuration, 0.3f)).SetEase(Ease.OutQuad)
             );
         }
 

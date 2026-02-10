@@ -35,7 +35,6 @@ public class UIManager : MonoBehaviour
     [SerializeField] private MedalDisplay _medalDisplay;
 
     private bool _isNewHighScore;
-    private bool _deathSequencePlaying;
 
     private void Awake()
     {
@@ -73,7 +72,6 @@ public class UIManager : MonoBehaviour
                 _mainMenuPanel.SetActive(true);
                 _hudPanel.SetActive(false);
                 _gameOverPanel.SetActive(false);
-                _deathSequencePlaying = false;
                 if (_titleScreenAnimator != null)
                     _titleScreenAnimator.PlayEntrance();
                 break;
@@ -82,7 +80,6 @@ public class UIManager : MonoBehaviour
                 _hudPanel.SetActive(true);
                 _gameOverPanel.SetActive(false);
                 _isNewHighScore = false;
-                _deathSequencePlaying = false;
                 break;
 
             case GameState.GameOver:
@@ -93,8 +90,6 @@ public class UIManager : MonoBehaviour
 
     private void HandleDeath()
     {
-        _deathSequencePlaying = true;
-
         // Play death effects first, then show game over
         if (_deathSequence != null)
         {
@@ -108,8 +103,6 @@ public class UIManager : MonoBehaviour
 
     private void ShowGameOver()
     {
-        _deathSequencePlaying = false;
-
         int finalScore = ScoreManager.Instance != null ? ScoreManager.Instance.CurrentScore : 0;
         int highScore = ScoreManager.Instance != null ? ScoreManager.Instance.HighScore : 0;
 

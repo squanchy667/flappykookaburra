@@ -15,7 +15,6 @@ public class TitleScreenAnimator : MonoBehaviour
     [SerializeField] private float _logoDropDuration = 0.6f;
     [SerializeField] private float _bobAmplitude = 20f;
     [SerializeField] private float _bobDuration = 2f;
-    [SerializeField] private float _pulseMin = 1.0f;
     [SerializeField] private float _pulseMax = 1.1f;
     [SerializeField] private float _pulseDuration = 0.8f;
 

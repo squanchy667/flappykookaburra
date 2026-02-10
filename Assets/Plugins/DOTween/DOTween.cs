@@ -306,6 +306,19 @@ namespace DG.Tweening
             return this;
         }
 
+        public Sequence InsertCallback(float atPosition, Action callback)
+        {
+            _entries.Add(new SequenceEntry
+            {
+                startTime = atPosition,
+                callback = callback,
+                isCallback = true
+            });
+            _totalDuration = Mathf.Max(_totalDuration, atPosition);
+            duration = _totalDuration;
+            return this;
+        }
+
         public Sequence Join(Tween tween)
         {
             if (tween == null) return this;
