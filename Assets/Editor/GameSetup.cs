@@ -915,9 +915,6 @@ public static class GameSetup
         // Layer 4: Near trees (speed 0.7)
         CreateParallaxLayer("BackgroundNear", 0.7f, new Color(0.4f, 0.75f, 0.4f), -1, "Background/backgroundnear");
 
-        // ── Ground Layer ──
-        CreateGroundLayer();
-
         // ── Cloud Spawner ──
         CreateCloudSpawner();
 
@@ -996,73 +993,6 @@ public static class GameSetup
         so.ApplyModifiedPropertiesWithoutUndo();
 
         Debug.Log($"[GameSetup] Created parallax layer: {name} (speed: {speedMultiplier})");
-    }
-
-    private static void CreateGroundLayer()
-    {
-        if (GameObject.Find("Ground Layer") != null) return;
-
-        // Surface detail sprite
-        // AI Art Prompt: Pixel art Australian ground surface. Grass tufts, small rocks on red-brown dirt.
-        // Transparent below surface line. Tileable horizontally. 128×32px.
-        var surfaceSprite = LoadOrCreateSprite("Ground/ground-surface", new Color(0.55f, 0.3f, 0.15f), 128, 32, pixelsPerUnit: 64, alphaIsTransparency: true);
-
-        var go = new GameObject("Ground Layer");
-        go.transform.position = new Vector3(0f, -4.5f, 0f);
-        var layer = go.AddComponent<ParallaxLayer>();
-
-        var sprA = new GameObject("SpriteA");
-        sprA.transform.SetParent(go.transform);
-        sprA.transform.localPosition = Vector3.zero;
-        var srA = sprA.AddComponent<SpriteRenderer>();
-        srA.sprite = surfaceSprite;
-        srA.sortingLayerName = "Ground";
-        srA.sortingOrder = 0;
-        srA.drawMode = SpriteDrawMode.Tiled;
-        srA.size = new Vector2(20f, 2f);
-
-        var sprB = new GameObject("SpriteB");
-        sprB.transform.SetParent(go.transform);
-        sprB.transform.localPosition = new Vector3(20f, 0, 0);
-        var srB = sprB.AddComponent<SpriteRenderer>();
-        srB.sprite = surfaceSprite;
-        srB.sortingLayerName = "Ground";
-        srB.sortingOrder = 0;
-        srB.drawMode = SpriteDrawMode.Tiled;
-        srB.size = new Vector2(20f, 2f);
-
-        // Underground fill
-        // AI Art Prompt: Pixel art underground fill. Solid dark brown dirt. Tileable. 64×64px.
-        var subSprite = LoadOrCreateSprite("Ground/ground-sub", new Color(0.35f, 0.2f, 0.1f), 64, 64, pixelsPerUnit: 64);
-
-        var subA = new GameObject("SubA");
-        subA.transform.SetParent(go.transform);
-        subA.transform.localPosition = new Vector3(0f, -1.5f, 0f);
-        var subSrA = subA.AddComponent<SpriteRenderer>();
-        subSrA.sprite = subSprite;
-        subSrA.sortingLayerName = "Ground";
-        subSrA.sortingOrder = -1;
-        subSrA.drawMode = SpriteDrawMode.Tiled;
-        subSrA.size = new Vector2(20f, 3f);
-
-        var subB = new GameObject("SubB");
-        subB.transform.SetParent(go.transform);
-        subB.transform.localPosition = new Vector3(20f, -1.5f, 0f);
-        var subSrB = subB.AddComponent<SpriteRenderer>();
-        subSrB.sprite = subSprite;
-        subSrB.sortingLayerName = "Ground";
-        subSrB.sortingOrder = -1;
-        subSrB.drawMode = SpriteDrawMode.Tiled;
-        subSrB.size = new Vector2(20f, 3f);
-
-        var so = new SerializedObject(layer);
-        so.FindProperty("_scrollSpeedMultiplier").floatValue = 1f;
-        so.FindProperty("_spriteA").objectReferenceValue = srA;
-        so.FindProperty("_spriteB").objectReferenceValue = srB;
-        so.FindProperty("_baseSpeed").floatValue = 3f;
-        so.ApplyModifiedPropertiesWithoutUndo();
-
-        Debug.Log("[GameSetup] Created modular ground layer (surface + underground fill)");
     }
 
     private static void CreateCloudSpawner()
@@ -1146,7 +1076,7 @@ public static class GameSetup
         renderer.sortingOrder = -1;
 
         var renderers = new System.Collections.Generic.List<SpriteRenderer>();
-        foreach (var layerName in new[] { "SkyGradient", "HillsSilhouette", "TreesMidground", "BackgroundNear", "Ground Layer" })
+        foreach (var layerName in new[] { "SkyGradient", "HillsSilhouette", "TreesMidground", "BackgroundNear" })
         {
             var layerGO = GameObject.Find(layerName);
             if (layerGO != null)
