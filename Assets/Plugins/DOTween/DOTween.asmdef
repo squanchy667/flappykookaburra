@@ -1,9 +1,8 @@
 {
-    "name": "FlappyKookaburra",
+    "name": "DOTween",
     "rootNamespace": "",
     "references": [
-        "Unity.TextMeshPro",
-        "DOTween"
+        "Unity.TextMeshPro"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
