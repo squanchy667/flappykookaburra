@@ -158,16 +158,63 @@ public static class GameSetup
 
     // ─── Sprites ─────────────────────────────────────────────────
 
-    private static Sprite LoadOrCreateSprite(string name, Color fallbackColor, int fallbackWidth, int fallbackHeight, int pixelsPerUnit = 64, bool alphaIsTransparency = false)
+    private enum SpriteShape { Rectangle, Ellipse, RoundedRect }
+
+    private static Sprite LoadOrCreateSprite(string name, Color fallbackColor, int fallbackWidth, int fallbackHeight, int pixelsPerUnit = 64, bool alphaIsTransparency = false, SpriteShape shape = SpriteShape.Rectangle)
     {
         string path = $"Assets/Sprites/{name}.png";
         var existing = AssetDatabase.LoadAssetAtPath<Sprite>(path);
 
         if (existing == null)
         {
-            var tex = new Texture2D(fallbackWidth, fallbackHeight);
+            var tex = new Texture2D(fallbackWidth, fallbackHeight, TextureFormat.RGBA32, false);
             var pixels = new Color[fallbackWidth * fallbackHeight];
-            for (int i = 0; i < pixels.Length; i++) pixels[i] = fallbackColor;
+
+            if (alphaIsTransparency && shape != SpriteShape.Rectangle)
+            {
+                // Fill with transparent first
+                for (int i = 0; i < pixels.Length; i++) pixels[i] = Color.clear;
+
+                float cx = fallbackWidth * 0.5f;
+                float cy = fallbackHeight * 0.5f;
+                float rx = fallbackWidth * 0.5f;
+                float ry = fallbackHeight * 0.5f;
+
+                for (int y = 0; y < fallbackHeight; y++)
+                {
+                    for (int x = 0; x < fallbackWidth; x++)
+                    {
+                        bool inside = false;
+                        if (shape == SpriteShape.Ellipse)
+                        {
+                            float dx = (x + 0.5f - cx) / rx;
+                            float dy = (y + 0.5f - cy) / ry;
+                            inside = (dx * dx + dy * dy) <= 1f;
+                        }
+                        else if (shape == SpriteShape.RoundedRect)
+                        {
+                            float cornerRadius = Mathf.Min(fallbackWidth, fallbackHeight) * 0.25f;
+                            inside = IsInsideRoundedRect(x, y, fallbackWidth, fallbackHeight, cornerRadius);
+                        }
+
+                        if (inside)
+                        {
+                            // Simple shading: slightly lighter at top, darker at bottom
+                            float shade = 0.85f + 0.15f * ((float)y / fallbackHeight);
+                            pixels[y * fallbackWidth + x] = new Color(
+                                fallbackColor.r * shade,
+                                fallbackColor.g * shade,
+                                fallbackColor.b * shade,
+                                fallbackColor.a);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                for (int i = 0; i < pixels.Length; i++) pixels[i] = fallbackColor;
+            }
+
             tex.SetPixels(pixels);
             tex.Apply();
 
@@ -189,16 +236,57 @@ public static class GameSetup
         return AssetDatabase.LoadAssetAtPath<Sprite>(path);
     }
 
-    private static Sprite LoadOrCreateSpriteWithPivot(string name, Color fallbackColor, int fallbackWidth, int fallbackHeight, int pixelsPerUnit, Vector2 pivot)
+    private static Sprite LoadOrCreateSpriteWithPivot(string name, Color fallbackColor, int fallbackWidth, int fallbackHeight, int pixelsPerUnit, Vector2 pivot, SpriteShape shape = SpriteShape.Ellipse)
     {
         string path = $"Assets/Sprites/{name}.png";
         var existing = AssetDatabase.LoadAssetAtPath<Sprite>(path);
 
         if (existing == null)
         {
-            var tex = new Texture2D(fallbackWidth, fallbackHeight);
+            var tex = new Texture2D(fallbackWidth, fallbackHeight, TextureFormat.RGBA32, false);
             var pixels = new Color[fallbackWidth * fallbackHeight];
-            for (int i = 0; i < pixels.Length; i++) pixels[i] = fallbackColor;
+
+            // Fill with transparent, then draw shape
+            for (int i = 0; i < pixels.Length; i++) pixels[i] = Color.clear;
+
+            float cx = fallbackWidth * 0.5f;
+            float cy = fallbackHeight * 0.5f;
+            float rx = fallbackWidth * 0.5f;
+            float ry = fallbackHeight * 0.5f;
+
+            for (int y = 0; y < fallbackHeight; y++)
+            {
+                for (int x = 0; x < fallbackWidth; x++)
+                {
+                    bool inside = false;
+                    if (shape == SpriteShape.Ellipse)
+                    {
+                        float dx = (x + 0.5f - cx) / rx;
+                        float dy = (y + 0.5f - cy) / ry;
+                        inside = (dx * dx + dy * dy) <= 1f;
+                    }
+                    else if (shape == SpriteShape.RoundedRect)
+                    {
+                        float cornerRadius = Mathf.Min(fallbackWidth, fallbackHeight) * 0.25f;
+                        inside = IsInsideRoundedRect(x, y, fallbackWidth, fallbackHeight, cornerRadius);
+                    }
+                    else
+                    {
+                        inside = true;
+                    }
+
+                    if (inside)
+                    {
+                        float shade = 0.85f + 0.15f * ((float)y / fallbackHeight);
+                        pixels[y * fallbackWidth + x] = new Color(
+                            fallbackColor.r * shade,
+                            fallbackColor.g * shade,
+                            fallbackColor.b * shade,
+                            fallbackColor.a);
+                    }
+                }
+            }
+
             tex.SetPixels(pixels);
             tex.Apply();
 
@@ -226,6 +314,20 @@ public static class GameSetup
         return AssetDatabase.LoadAssetAtPath<Sprite>(path);
     }
 
+    private static bool IsInsideRoundedRect(int x, int y, int w, int h, float r)
+    {
+        // Check if point is inside a rounded rectangle
+        if (x >= r && x < w - r) return true; // Middle band
+        if (y >= r && y < h - r) return true; // Middle band vertical
+
+        // Check corners
+        float cx = x < r ? r : w - r;
+        float cy = y < r ? r : h - r;
+        float dx = x - cx;
+        float dy = y - cy;
+        return (dx * dx + dy * dy) <= r * r;
+    }
+
     // ─── Prefabs ──────────────────────────────────────────────────
 
     private static ObstaclePair CreateObstaclePairPrefab()
@@ -242,12 +344,12 @@ public static class GameSetup
         // Leaf cap top — green leafy cap for top of pipe
         // AI Art Prompt: Pixel art eucalyptus leaf cluster cap, facing downward. Green leaves with brown branch.
         // Transparent background. 128×64px.
-        var capTopSprite = LoadOrCreateSprite("Obstacles/trunk-cap-top", new Color(0.2f, 0.55f, 0.2f), 128, 64, pixelsPerUnit: 64, alphaIsTransparency: true);
+        var capTopSprite = LoadOrCreateSprite("Obstacles/trunk-cap-top", new Color(0.2f, 0.55f, 0.2f), 128, 64, pixelsPerUnit: 64, alphaIsTransparency: true, shape: SpriteShape.RoundedRect);
 
         // Root cap bottom — brown root cap for bottom of pipe
         // AI Art Prompt: Pixel art tree root/base cap, facing upward. Brown roots spreading.
         // Transparent background. 128×64px.
-        var capBottomSprite = LoadOrCreateSprite("Obstacles/trunk-cap-bottom", new Color(0.4f, 0.3f, 0.15f), 128, 64, pixelsPerUnit: 64, alphaIsTransparency: true);
+        var capBottomSprite = LoadOrCreateSprite("Obstacles/trunk-cap-bottom", new Color(0.4f, 0.3f, 0.15f), 128, 64, pixelsPerUnit: 64, alphaIsTransparency: true, shape: SpriteShape.RoundedRect);
 
         const float targetPipeHeight = 20f;
         const float targetPipeWidth = 1.5f;
@@ -418,7 +520,7 @@ public static class GameSetup
         // AI Art Prompt: Pixel art kookaburra body (no wings, no tail), side profile facing right.
         // Brown/tan body, cream-white chest, dark beak. Transparent background. 32×32px.
         var bodySprite = LoadOrCreateSprite("Kookaburra/kookaburra-body",
-            new Color(0.6f, 0.4f, 0.2f), 32, 32, pixelsPerUnit: 64, alphaIsTransparency: true);
+            new Color(0.6f, 0.4f, 0.2f), 32, 32, pixelsPerUnit: 64, alphaIsTransparency: true, shape: SpriteShape.Ellipse);
 
         // AI Art Prompt: Pixel art kookaburra wing, side view. Brown/dark feather pattern.
         // Pivot at shoulder (top-left). Transparent background. 16×24px.
@@ -428,12 +530,12 @@ public static class GameSetup
         // AI Art Prompt: Pixel art kookaburra tail feathers, horizontal spread.
         // Brown with dark tips. Transparent background. 16×8px.
         var tailSprite = LoadOrCreateSprite("Kookaburra/kookaburra-tail",
-            new Color(0.5f, 0.35f, 0.2f), 16, 8, pixelsPerUnit: 64, alphaIsTransparency: true);
+            new Color(0.5f, 0.35f, 0.2f), 16, 8, pixelsPerUnit: 64, alphaIsTransparency: true, shape: SpriteShape.Ellipse);
 
         // AI Art Prompt: Pixel art kookaburra eye, simple black dot with white highlight.
         // Transparent background. 8×8px.
         var eyeSprite = LoadOrCreateSprite("Kookaburra/kookaburra-eye",
-            new Color(0.1f, 0.1f, 0.1f), 8, 8, pixelsPerUnit: 64, alphaIsTransparency: true);
+            new Color(0.1f, 0.1f, 0.1f), 8, 8, pixelsPerUnit: 64, alphaIsTransparency: true, shape: SpriteShape.Ellipse);
 
         var go = new GameObject("Kookaburra");
         go.tag = "Player";
@@ -969,9 +1071,9 @@ public static class GameSetup
 
         // Cloud sprites
         // AI Art Prompt: Pixel art small fluffy cloud, white/light grey. Transparent background. 32×16px.
-        var cloudSmall = LoadOrCreateSprite("Background/cloud-small", new Color(1f, 1f, 1f, 0.7f), 32, 16, pixelsPerUnit: 64, alphaIsTransparency: true);
+        var cloudSmall = LoadOrCreateSprite("Background/cloud-small", new Color(1f, 1f, 1f, 0.7f), 32, 16, pixelsPerUnit: 64, alphaIsTransparency: true, shape: SpriteShape.Ellipse);
         // AI Art Prompt: Pixel art large fluffy cloud, white/light grey. Transparent background. 64×24px.
-        var cloudLarge = LoadOrCreateSprite("Background/cloud-large", new Color(0.95f, 0.95f, 1f, 0.8f), 64, 24, pixelsPerUnit: 64, alphaIsTransparency: true);
+        var cloudLarge = LoadOrCreateSprite("Background/cloud-large", new Color(0.95f, 0.95f, 1f, 0.8f), 64, 24, pixelsPerUnit: 64, alphaIsTransparency: true, shape: SpriteShape.Ellipse);
 
         var go = new GameObject("CloudSpawner");
         var spawner = go.AddComponent<CloudSpawner>();
